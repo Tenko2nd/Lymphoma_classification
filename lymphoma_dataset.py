@@ -27,9 +27,10 @@ class LymphomaDataset(Dataset):
     def __init__(self, pd_file, transform=None):
         self.df = pd_file
         self.transform = transform
-        if "categorie" not in self.df.columns:
-            raise ValueError("The 'categorie' column is missing from the DataFrame")
         self.classes = self.df["categorie"].unique().tolist()
+        self.tabular = self.df.drop(
+            columns=["img_path", "categorie", "type", "patient"]
+        )
 
     def __len__(self) -> int:
         return len(self.df)
@@ -37,11 +38,12 @@ class LymphomaDataset(Dataset):
     def __getitem__(self, index):
         if torch.is_tensor(index):
             idx = idx.tolist()
-        image = io.imread(self.df.iloc[index]["img_path"])
+        image = io.imread(self.df.iloc[index]["img_path"]) / 255.0
         categorie = self.df.iloc[index]["categorie"]
+        tabular = self.tabular.loc[index].to_dict()
         if self.transform:
             image = self.transform(image)
-        return image, categorie
+        return image, categorie, tabular
 
 
 class Rescale(object):

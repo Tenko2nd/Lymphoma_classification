@@ -138,7 +138,7 @@ dfLCM = dfCat["LCM"].sample(frac=fraction_of_sample)
 dfLZM = dfCat["LZM"].sample(n=len(dfLCM))
 
 LymphomaDS_resize360_small = LymphomaDataset(
-    pd_file=pd.concat([dfLCM, dfLZM]),
+    pd_file=pd.concat([dfLCM, dfLZM]).reset_index(drop=True),
     transform=transforms.Compose(
         [
             Rescale(360),

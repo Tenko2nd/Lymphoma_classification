@@ -111,8 +111,8 @@ class ToTensor(object):
         return torch.from_numpy(image.transpose((2, 0, 1)))
 
 
-lymphomas_mean = torch.Tensor([0.229, 0.224, 0.225])
-lymphomas_std = torch.Tensor([0.229, 0.224, 0.225])
+lymphomas_mean = torch.Tensor([0.8417, 0.7080, 0.7004])
+lymphomas_std = torch.Tensor([0.1695, 0.1980, 0.0855])
 
 # Dataset with all images
 # sourcery skip: identity-comprehension

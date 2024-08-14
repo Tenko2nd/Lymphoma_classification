@@ -1,12 +1,13 @@
 from lymphoma_dataset import LymphomaDS_resize360_small
-from torch.utils.data import DataLoader, random_split
-from sklearn import preprocessing
-import pickle
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 from torchvision import models
 import torch
+import pickle
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
+from sklearn import preprocessing
+import math
 
 
 # Parameters
@@ -16,15 +17,10 @@ RATIO_TRAIN_VAL_TEST = [0.8, 0.2, 0]
 DATASET = LymphomaDS_resize360_small
 LE_PATH = "Lymphoma_labelEncoder.pkl"
 LEARNING_RATE = 0.001
-SAVE_MODEL_PATH = "mod_res50_50ep_3k2.pth"
+SAVE_MODEL_PATH = "mod_res50_50ep_3k_ccub.pth"
+NUM_EPOCHS = 50
 
-train_data, test_data = random_split(
-    DATASET,
-    [
-        int(len(DATASET) * RATIO_TRAIN_VAL_TEST[0]),
-        int(len(DATASET) * RATIO_TRAIN_VAL_TEST[1]) + len(DATASET) % 2,
-    ],  # In case of odd number in DATASET
-)
+train_data, test_data = [LymphomaDS_resize360_small[x] for x in ["train", "val"]]
 
 lenDataSet = {"train": len(train_data), "val": len(test_data)}
 
@@ -62,7 +58,6 @@ from custom_funcions import printProgressBar
 
 if __name__ == "__main__":
     # Training loop
-    NUM_EPOCHS = 50
     trainLossList, valLossList, trainAccList, valAccList = [], [], [], []
     for i in range(NUM_EPOCHS):
         for phase in ["train", "val"]:
@@ -88,9 +83,10 @@ if __name__ == "__main__":
                     if phase == "train":
                         loss.backward()
                         optimizer.step()
+
                 printProgressBar(
                     idx + 1,
-                    int(lenDataSet[phase] / BATCH_SIZE) + 1,
+                    math.ceil(lenDataSet[phase] / BATCH_SIZE),
                     f"{phase, i+1} Progress",
                     "Complete",
                     length=50,
@@ -134,4 +130,5 @@ if __name__ == "__main__":
     plt.plot(trainAccList, "g", valAccList, "r")
     plt.title("Accuracy")
     plt.legend(("train", "val"))
+    plt.savefig(f"{SAVE_MODEL_PATH}_res_train.png")
     plt.show()

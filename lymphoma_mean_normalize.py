@@ -1,7 +1,7 @@
 """
-    This python code is used only to calculate the values we need to make our normalization more efficient on our dataset.
-    This will print out the mean and standard deviation of your images based on the CSV you provided to your dataset.
-    //!\\ Use the same CSV and change the variable names based on yours!
+    This python code is used only to calculate the values we need to make our normalization more efficient on our dataset.\n
+    This will print out the mean and standard deviation of your images based on the CSV you provided to your dataset.\n
+    //!\\ Use the same CSV and change the variable names based on yours!\n
 """
 
 import pandas as pd

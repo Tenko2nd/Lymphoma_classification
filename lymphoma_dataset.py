@@ -16,7 +16,7 @@ import pandas as pd
 from skimage import io, transform
 from torch.utils.data import Dataset
 from torchvision import transforms
-from sklearn.utils import shuffle
+import numpy as np
 
 CSV_PATH = r"C:\Users\mc29047i\Documents\Data2train\data.csv"
 fullDF = pd.read_csv(CSV_PATH)
@@ -130,55 +130,26 @@ def df_train_val(full_pd_df, fract_sample=1, fract_train=0.8, extern_val=True):
     Returns:
         dic of Dataframe: Dataframes train and val placed in a dic (accessed with ["train"] or ["val"])
     """
-    # Group by 'categorie'
-    dfCat = {a: b for a, b in full_pd_df.groupby("categorie")}
-    smallest = (
-        len(dfCat["LCM"])
-        if len(dfCat["LCM"]) < len(dfCat["LZM"])
-        else len(dfCat["LZM"])
-    )
-    dfLCM = dfCat["LCM"].sample(n=int(smallest * fract_sample))
-    dfLZM = dfCat["LZM"].sample(n=int(smallest * fract_sample))
     # if internal validation
     if not extern_val:
-        dfTot = shuffle(pd.concat([dfLCM, dfLZM])).reset_index(drop=True)
-        small_dfs = {
-            "train": dfTot.loc[0 : int(len(dfTot) * fract_train)].reset_index(
-                drop=True
-            ),
-            "val": dfTot.loc[int(len(dfTot) * fract_train) + 1 :].reset_index(
-                drop=True
-            ),
-        }
+        dfTot = full_pd_df.sample(frac=fract_sample)
+        small_dfs = {"train": dfTot.sample(frac=fract_train)}
+        small_dfs["val"] = dfTot.drop(small_dfs["train"].index)
+
     # if external validation
     else:
-        # Group by 'patient', and sample a fraction of the patients
-        patients_LCM, patients_LZM = (
-            dfLCM["patient"].unique(),
-            dfLZM["patient"].unique(),
+        sample_pat = np.random.choice(
+            full_pd_df["patient"].unique(),
+            int(full_pd_df["patient"].nunique() * fract_sample),
+            replace=False,
         )
-        smallest = (
-            patients_LCM if len(patients_LCM) < len(patients_LZM) else patients_LZM
-        )
-        sampled_patients = shuffle(
-            (patients_LCM).tolist()[: len(smallest)]
-            + (patients_LZM).tolist()[: len(smallest)]
-        )
-
-        # Split the sampled patients into training and validation sets
-        train_patients = sampled_patients[: int(len(sampled_patients) * fract_train)]
-        val_patients = sampled_patients[int(len(sampled_patients) * fract_train) :]
-
+        train_size = int(len(sample_pat) * fract_train)
+        train_patients, val_patients = sample_pat[:train_size], sample_pat[train_size:]
         # Create the training and validation dataframes
         small_dfs = {
-            "train": full_pd_df[full_pd_df["patient"].isin(train_patients)].reset_index(
-                drop=True
-            ),
-            "val": full_pd_df[full_pd_df["patient"].isin(val_patients)].reset_index(
-                drop=True
-            ),
+            "train": full_pd_df.query("patient in @train_patients"),
+            "val": full_pd_df.query("patient in @val_patients"),
         }
-
     return small_dfs
 
 
@@ -199,7 +170,9 @@ LymphomaDS_resize360 = LymphomaDataset(
 # Dataset with only around 20% images and same number LCM and LZM and external validation
 LymphomaDS_small_external = {
     x: LymphomaDataset(
-        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=True)[x],
+        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=True)[x].reset_index(
+            drop=True
+        ),
         transform=transforms.Compose(
             [
                 Rescale(360),
@@ -215,7 +188,9 @@ LymphomaDS_small_external = {
 # Dataset with only around 20% images and same number LCM and LZM and internal validation
 LymphomaDS_small_internal = {
     x: LymphomaDataset(
-        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=False)[x],
+        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=False)[x].reset_index(
+            drop=True
+        ),
         transform=transforms.Compose(
             [
                 Rescale(360),

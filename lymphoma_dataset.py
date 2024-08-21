@@ -1,11 +1,12 @@
 """
-    This python code is used to create a dataset of lymphoma pictures with the data stored in the csv thanks to the code "lymphoma_csv_data.py".\n
+    This python code is used to create datasets of lymphoma pictures with the data stored in the csv thanks to the code "lymphoma_csv_data.py".\n
     It's using pytorch dataset class and some transformation (Rescale, Crop, ToTensor & Normalize) thanks to torchvision.\n
-    the data are stored as dictionnary {'image': img, "categorie": cat} with :\n
+    the data are stored as variable 'image', 'categorie' and 'tabular with :\n
             _ image in the form of torch.tensor (3, 360, 360)\n
-            _ categorie is either 'LCM' ('Lymphome à cellule du manteau') ou 'LZM' ('Lymphome de la zone marginale')
+            _ categorie is either 'LCM' ('Lymphome à cellule du manteau') ou 'LZM' ('Lymphome de la zone marginale')\n
+            _ tabular are all the metadata associated with each images\n
 \n
-    You can import the dataset 'LymphomaDS_resize360' where you want to use it (eg: from lymphoma_dataset import LymphomaDS_resize360)\n
+    You can import the any dataset like 'LymphomaDS_resize360' where you want to use it (eg: from lymphoma_dataset import LymphomaDS_resize360)\n
     //!\\ Make sure to be in the same folder !!!\n
 
 """
@@ -115,6 +116,72 @@ lymphomas_mean = torch.Tensor([0.8417, 0.7080, 0.7004])
 lymphomas_std = torch.Tensor([0.1695, 0.1980, 0.0855])
 
 
+def df_train_val(full_pd_df, fract_sample=1, fract_train=0.8, extern_val=True):
+    """Create two pandas dataframes (train and validation) based on a bigger given in parameter.
+        It make sure there is the same number of data in each categories.
+        You can tune the percentile of data you want from your bigger dataframe, the percentile of train/validation and if you need external validation.
+
+    Args:
+        full_pd_df (pandas.core.frame.DataFrame): Dataframe with all internal informations
+        fract_sample (int, optional): If you only want a small part of a big dataset. Defaults to 1.
+        fract_train (float, optional): Percentile of data you want in your train set. Defaults to 0.8.
+        extern_val (bool, optional): If you want your validation to be external or not (internal). Defaults to True.
+
+    Returns:
+        dic of Dataframe: Dataframes train and val placed in a dic (accessed with ["train"] or ["val"])
+    """
+    # Group by 'categorie'
+    dfCat = {a: b for a, b in full_pd_df.groupby("categorie")}
+    smallest = (
+        len(dfCat["LCM"])
+        if len(dfCat["LCM"]) < len(dfCat["LZM"])
+        else len(dfCat["LZM"])
+    )
+    dfLCM = dfCat["LCM"].sample(n=int(smallest * fract_sample))
+    dfLZM = dfCat["LZM"].sample(n=int(smallest * fract_sample))
+    # if internal validation
+    if not extern_val:
+        dfTot = shuffle(pd.concat([dfLCM, dfLZM])).reset_index(drop=True)
+        small_dfs = {
+            "train": dfTot.loc[0 : int(len(dfTot) * fract_train)].reset_index(
+                drop=True
+            ),
+            "val": dfTot.loc[int(len(dfTot) * fract_train) + 1 :].reset_index(
+                drop=True
+            ),
+        }
+    # if external validation
+    else:
+        # Group by 'patient', and sample a fraction of the patients
+        patients_LCM, patients_LZM = (
+            dfLCM["patient"].unique(),
+            dfLZM["patient"].unique(),
+        )
+        smallest = (
+            patients_LCM if len(patients_LCM) < len(patients_LZM) else patients_LZM
+        )
+        sampled_patients = shuffle(
+            (patients_LCM).tolist()[: len(smallest)]
+            + (patients_LZM).tolist()[: len(smallest)]
+        )
+
+        # Split the sampled patients into training and validation sets
+        train_patients = sampled_patients[: int(len(sampled_patients) * fract_train)]
+        val_patients = sampled_patients[int(len(sampled_patients) * fract_train) :]
+
+        # Create the training and validation dataframes
+        small_dfs = {
+            "train": full_pd_df[full_pd_df["patient"].isin(train_patients)].reset_index(
+                drop=True
+            ),
+            "val": full_pd_df[full_pd_df["patient"].isin(val_patients)].reset_index(
+                drop=True
+            ),
+        }
+
+    return small_dfs
+
+
 # Dataset with all images
 # sourcery skip: identity-comprehension
 LymphomaDS_resize360 = LymphomaDataset(
@@ -129,33 +196,26 @@ LymphomaDS_resize360 = LymphomaDataset(
     ),
 )
 
-
-# Dataset with only around 20% images and same number LCM and LZM and unique patients in train and val
-fraction_of_sample = 0.2
-
-# Group by 'categorie' and then by 'patient', and sample a fraction of the patients
-dfLCM = fullDF[fullDF["categorie"] == "LCM"]
-dfLZM = fullDF[fullDF["categorie"] == "LZM"]
-patients_LCM, patients_LZM = dfLCM["patient"].unique(), dfLZM["patient"].unique()
-sampled_patients = shuffle(
-    (patients_LCM).tolist()[: int(len(patients_LCM) * fraction_of_sample)]
-    + (patients_LZM).tolist()[: int(len(patients_LCM) * fraction_of_sample)]
-)
-
-# Split the sampled patients into training and validation sets
-split_train = 0.8
-train_patients = sampled_patients[: int(len(sampled_patients) * split_train)]
-val_patients = sampled_patients[int(len(sampled_patients) * split_train) :]
-
-# Create the training and validation dataframes
-small_dfs = {
-    "train": fullDF[fullDF["patient"].isin(train_patients)],
-    "val": fullDF[fullDF["patient"].isin(val_patients)],
+# Dataset with only around 20% images and same number LCM and LZM and external validation
+LymphomaDS_small_external = {
+    x: LymphomaDataset(
+        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=True)[x],
+        transform=transforms.Compose(
+            [
+                Rescale(360),
+                Crop(360),
+                ToTensor(),
+                transforms.Normalize(lymphomas_mean, lymphomas_std),
+            ]
+        ),
+    )
+    for x in ["train", "val"]
 }
 
-LymphomaDS_resize360_small = {
+# Dataset with only around 20% images and same number LCM and LZM and internal validation
+LymphomaDS_small_internal = {
     x: LymphomaDataset(
-        pd_file=small_dfs[x].reset_index(drop=True),
+        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=False)[x],
         transform=transforms.Compose(
             [
                 Rescale(360),

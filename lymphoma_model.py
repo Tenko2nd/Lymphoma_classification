@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn import preprocessing
 import math
+from tqdm import tqdm
 
 
 # Parameters
@@ -54,8 +55,6 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
 
-from custom_funcions import printProgressBar
-
 if __name__ == "__main__":
     # Training loop
     trainLossList, valLossList, trainAccList, valAccList = [], [], [], []
@@ -69,7 +68,10 @@ if __name__ == "__main__":
             running_loss = 0.0
             running_corrects = 0
 
-            for idx, (inputs, labels, _) in enumerate(loaders[phase]):
+            for idx, (inputs, labels, _) in tqdm(
+                enumerate(loaders[phase]),
+                total=(math.ceil(lenDataSet[phase] / BATCH_SIZE)),
+            ):
                 inputs = inputs.float().to(device)
                 labels = torch.tensor(le.transform(labels)).to(device)
 
@@ -83,14 +85,6 @@ if __name__ == "__main__":
                     if phase == "train":
                         loss.backward()
                         optimizer.step()
-
-                printProgressBar(
-                    idx + 1,
-                    math.ceil(lenDataSet[phase] / BATCH_SIZE),
-                    f"{phase, i+1} Progress",
-                    "Complete",
-                    length=50,
-                )
 
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)

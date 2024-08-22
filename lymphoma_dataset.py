@@ -6,8 +6,8 @@
             _ categorie is either 'LCM' ('Lymphome à cellule du manteau') ou 'LZM' ('Lymphome de la zone marginale')\n
             _ tabular are all the metadata associated with each images\n
 \n
-    You can import the any dataset like 'LymphomaDS_resize360' where you want to use it (eg: from lymphoma_dataset import LymphomaDS_resize360)\n
-    //!\\ Make sure to be in the same folder !!!\n
+    The datasets created are stored in pickle files for you to use them later.\n
+    //!\\ You need to import the class for you to use the pickled datasets !!!\n
 
 """
 
@@ -17,6 +17,7 @@ from skimage import io, transform
 from torch.utils.data import Dataset
 from torchvision import transforms
 import numpy as np
+import pickle
 
 CSV_PATH = r"C:\Users\mc29047i\Documents\Data2train\data.csv"
 fullDF = pd.read_csv(CSV_PATH)
@@ -116,7 +117,7 @@ lymphomas_mean = torch.Tensor([0.8417, 0.7080, 0.7004])
 lymphomas_std = torch.Tensor([0.1695, 0.1980, 0.0855])
 
 
-def df_train_val(full_pd_df, fract_sample=1, fract_train=0.8, extern_val=True):
+def df_train_val_test(full_pd_df, fract_sample=1, extern_val=True):
     """Create two pandas dataframes (train and validation) based on a bigger given in parameter.
         It make sure there is the same number of data in each categories.
         You can tune the percentile of data you want from your bigger dataframe, the percentile of train/validation and if you need external validation.
@@ -130,11 +131,16 @@ def df_train_val(full_pd_df, fract_sample=1, fract_train=0.8, extern_val=True):
     Returns:
         dic of Dataframe: Dataframes train and val placed in a dic (accessed with ["train"] or ["val"])
     """
+    if fract_sample > 1 or fract_sample < 0:
+        raise Exception(
+            "Problem with the value of fract_sample, it must be between 0 and 1"
+        )
     # if internal validation
     if not extern_val:
         dfTot = full_pd_df.sample(frac=fract_sample)
-        small_dfs = {"train": dfTot.sample(frac=fract_train)}
-        small_dfs["val"] = dfTot.drop(small_dfs["train"].index)
+        small_dfs = {"train": dfTot[dfTot.index % 5 < 3]}
+        small_dfs["val"] = dfTot[dfTot.index % 5 == 3]
+        small_dfs["test"] = dfTot[dfTot.index % 5 == 4]
 
     # if external validation
     else:
@@ -143,19 +149,24 @@ def df_train_val(full_pd_df, fract_sample=1, fract_train=0.8, extern_val=True):
             int(full_pd_df["patient"].nunique() * fract_sample),
             replace=False,
         )
-        train_size = int(len(sample_pat) * fract_train)
-        train_patients, val_patients = sample_pat[:train_size], sample_pat[train_size:]
+        train_size = int(len(sample_pat) * 0.6)
+        test_size = int(len(sample_pat) * 0.2)
+        train_patients, val_patients, test_patients = (
+            sample_pat[:train_size],
+            sample_pat[train_size:-test_size],
+            sample_pat[-test_size:],
+        )
         # Create the training and validation dataframes
         small_dfs = {
             "train": full_pd_df.query("patient in @train_patients"),
             "val": full_pd_df.query("patient in @val_patients"),
+            "test": full_pd_df.query("patient in @test_patients"),
         }
     return small_dfs
 
 
 # Dataset with all images
-# sourcery skip: identity-comprehension
-LymphomaDS_resize360 = LymphomaDataset(
+DSLymph = LymphomaDataset(
     pd_file=fullDF,
     transform=transforms.Compose(
         [
@@ -166,13 +177,14 @@ LymphomaDS_resize360 = LymphomaDataset(
         ]
     ),
 )
+with open("Dataset/DS_Lymph.pkl", "wb") as f:
+    pickle.dump(DSLymph, f, -1)
 
-# Dataset with only around 20% images and same number LCM and LZM and external validation
-LymphomaDS_small_external = {
+# Dataset with only around 30% images and external validation
+pd_small_ext = df_train_val_test(fullDF, fract_sample=0.3, extern_val=True)
+DSLymph_small_ext = {
     x: LymphomaDataset(
-        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=True)[x].reset_index(
-            drop=True
-        ),
+        pd_file=pd_small_ext[x].reset_index(drop=True),
         transform=transforms.Compose(
             [
                 Rescale(360),
@@ -182,15 +194,16 @@ LymphomaDS_small_external = {
             ]
         ),
     )
-    for x in ["train", "val"]
+    for x in ["train", "val", "test"]
 }
+with open("Dataset/DS_Lymph_small_ext.pkl", "wb") as f:
+    pickle.dump(DSLymph_small_ext, f, -1)
 
-# Dataset with only around 20% images and same number LCM and LZM and internal validation
-LymphomaDS_small_internal = {
+# Dataset with only around 30% images and internal validation
+pd_small_int = df_train_val_test(fullDF, fract_sample=0.3, extern_val=False)
+DSLymph_small_int = {
     x: LymphomaDataset(
-        pd_file=df_train_val(fullDF, fract_sample=0.2, extern_val=False)[x].reset_index(
-            drop=True
-        ),
+        pd_file=pd_small_int[x].reset_index(drop=True),
         transform=transforms.Compose(
             [
                 Rescale(360),
@@ -200,5 +213,48 @@ LymphomaDS_small_internal = {
             ]
         ),
     )
-    for x in ["train", "val"]
+    for x in ["train", "val", "test"]
 }
+with open("Dataset/DS_Lymph_small_int.pkl", "wb") as f:
+    pickle.dump(DSLymph_small_int, f, -1)
+
+
+# Dataset with only 'LY' subtype and external validation
+LYdf = fullDF[fullDF["type"] == "LY"].reset_index(drop=True)
+pd_LY = df_train_val_test(LYdf, fract_sample=1, extern_val=True)
+DSLymph_LY_ext = {
+    x: LymphomaDataset(
+        pd_file=pd_LY[x].reset_index(drop=True),
+        transform=transforms.Compose(
+            [
+                Rescale(360),
+                Crop(360),
+                ToTensor(),
+                transforms.Normalize(lymphomas_mean, lymphomas_std),
+            ]
+        ),
+    )
+    for x in ["train", "val", "test"]
+}
+with open("Dataset/DS_Lymph_LY_ext.pkl", "wb") as f:
+    pickle.dump(DSLymph_LY_ext, f, -1)
+
+# Dataset with only 'SNE' subtype and external validation
+SNEdf = fullDF[fullDF["type"] == "SNE"].reset_index(drop=True)
+pd_SNE = df_train_val_test(SNEdf, fract_sample=1, extern_val=True)
+DSLymph_SNE_ext = {
+    x: LymphomaDataset(
+        pd_file=pd_SNE[x].reset_index(drop=True),
+        transform=transforms.Compose(
+            [
+                Rescale(360),
+                Crop(360),
+                ToTensor(),
+                transforms.Normalize(lymphomas_mean, lymphomas_std),
+            ]
+        ),
+    )
+    for x in ["train", "val", "test"]
+}
+with open("Dataset/DS_Lymph_SNE_ext.pkl", "wb") as f:
+    pickle.dump(DSLymph_SNE_ext, f, -1)

@@ -1,16 +1,16 @@
-"""
-    This python code is used to create datasets of lymphoma pictures with the data stored in the csv thanks to the code "lymphoma_csv_data.py".\n
-    It's using pytorch dataset class and some transformation (Rescale, Crop, ToTensor & Normalize) thanks to torchvision.\n
-    the data are stored as variable 'image', 'categorie' and 'tabular with :\n
-            _ image in the form of torch.tensor (3, 360, 360)\n
-            _ categorie is either 'LCM' ('Lymphome à cellule du manteau') ou 'LZM' ('Lymphome de la zone marginale')\n
-            _ tabular are all the metadata associated with each images\n
-\n
-    The datasets created are stored in pickle files for you to use them later.\n
-    //!\\ You need to import the class for you to use the pickled datasets !!!\n
+"""\033[38;5;224m    This python code is used to create datasets of lymphoma pictures with the data stored in the csv thanks to the code "lymphoma_csv_data.py".
+    It's using pytorch dataset class and some transformation (Rescale, Crop, ToTensor & Normalize) thanks to torchvision.
+    the data are stored as variable 'image', 'categorie' and 'tabular with :
+            - image in the form of torch.tensor (3, 360, 360)
+            - categorie is either 'LCM' ('Lymphome à cellule du manteau') ou 'LZM' ('Lymphome de la zone marginale')
+            - tabular are all the metadata associated with each images
+
+    The datasets created are stored in pickle files for you to use them later.
+    \033[38;5;208m//!\\\\ You need to import the class for you to use the pickled datasets !!!\033[38;5;213m
 
 """
 
+import argparse
 import torch
 import pandas as pd
 from skimage import io, transform
@@ -18,9 +18,6 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import numpy as np
 import pickle
-
-CSV_PATH = r"C:\Users\mc29047i\Documents\Data2train\data.csv"
-fullDF = pd.read_csv(CSV_PATH)
 
 
 class LymphomaDataset(Dataset):
@@ -165,26 +162,24 @@ def df_train_val_test(full_pd_df, fract_sample=1, extern_val=True):
     return small_dfs
 
 
-# Dataset with all images
-DSLymph = LymphomaDataset(
-    pd_file=fullDF,
-    transform=transforms.Compose(
-        [
-            Rescale(360),
-            Crop(360),
-            ToTensor(),
-            transforms.Normalize(lymphomas_mean, lymphomas_std),
-        ]
-    ),
-)
-with open("Dataset/DS_Lymph.pkl", "wb") as f:
-    pickle.dump(DSLymph, f, -1)
+def main():
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
 
-# Dataset with only around 30% images and external validation
-pd_small_ext = df_train_val_test(fullDF, fract_sample=0.3, extern_val=True)
-DSLymph_small_ext = {
-    x: LymphomaDataset(
-        pd_file=pd_small_ext[x].reset_index(drop=True),
+    parser.add_argument(
+        "-csv",
+        "--csv_path",
+        help="The path of the csv with your data\033[0m",
+        required=True,
+    )
+
+    CSV_PATH = parser.parse_args().csv_path
+    fullDF = pd.read_csv(CSV_PATH)
+
+    # Dataset with all images
+    DSLymph = LymphomaDataset(
+        pd_file=fullDF,
         transform=transforms.Compose(
             [
                 Rescale(360),
@@ -194,67 +189,87 @@ DSLymph_small_ext = {
             ]
         ),
     )
-    for x in ["train", "val", "test"]
-}
-with open("Dataset/DS_Lymph_small_ext.pkl", "wb") as f:
-    pickle.dump(DSLymph_small_ext, f, -1)
+    with open("Dataset/DS_Lymph.pkl", "wb") as f:
+        pickle.dump(DSLymph, f, -1)
 
-# Dataset with only around 30% images and internal validation
-pd_small_int = df_train_val_test(fullDF, fract_sample=0.3, extern_val=False)
-DSLymph_small_int = {
-    x: LymphomaDataset(
-        pd_file=pd_small_int[x].reset_index(drop=True),
-        transform=transforms.Compose(
-            [
-                Rescale(360),
-                Crop(360),
-                ToTensor(),
-                transforms.Normalize(lymphomas_mean, lymphomas_std),
-            ]
-        ),
-    )
-    for x in ["train", "val", "test"]
-}
-with open("Dataset/DS_Lymph_small_int.pkl", "wb") as f:
-    pickle.dump(DSLymph_small_int, f, -1)
+    # Dataset with only around 30% images and external validation
+    pd_small_ext = df_train_val_test(fullDF, fract_sample=0.3, extern_val=True)
+    DSLymph_small_ext = {
+        x: LymphomaDataset(
+            pd_file=pd_small_ext[x].reset_index(drop=True),
+            transform=transforms.Compose(
+                [
+                    Rescale(360),
+                    Crop(360),
+                    ToTensor(),
+                    transforms.Normalize(lymphomas_mean, lymphomas_std),
+                ]
+            ),
+        )
+        for x in ["train", "val", "test"]
+    }
+    with open("Dataset/DS_Lymph_small_ext.pkl", "wb") as f:
+        pickle.dump(DSLymph_small_ext, f, -1)
+
+    # Dataset with only around 30% images and internal validation
+    pd_small_int = df_train_val_test(fullDF, fract_sample=0.3, extern_val=False)
+    DSLymph_small_int = {
+        x: LymphomaDataset(
+            pd_file=pd_small_int[x].reset_index(drop=True),
+            transform=transforms.Compose(
+                [
+                    Rescale(360),
+                    Crop(360),
+                    ToTensor(),
+                    transforms.Normalize(lymphomas_mean, lymphomas_std),
+                ]
+            ),
+        )
+        for x in ["train", "val", "test"]
+    }
+    with open("Dataset/DS_Lymph_small_int.pkl", "wb") as f:
+        pickle.dump(DSLymph_small_int, f, -1)
+
+    # Dataset with only 'LY' subtype and external validation
+    LYdf = fullDF[fullDF["type"] == "LY"].reset_index(drop=True)
+    pd_LY = df_train_val_test(LYdf, fract_sample=1, extern_val=True)
+    DSLymph_LY_ext = {
+        x: LymphomaDataset(
+            pd_file=pd_LY[x].reset_index(drop=True),
+            transform=transforms.Compose(
+                [
+                    Rescale(360),
+                    Crop(360),
+                    ToTensor(),
+                    transforms.Normalize(lymphomas_mean, lymphomas_std),
+                ]
+            ),
+        )
+        for x in ["train", "val", "test"]
+    }
+    with open("Dataset/DS_Lymph_LY_ext.pkl", "wb") as f:
+        pickle.dump(DSLymph_LY_ext, f, -1)
+
+    # Dataset with only 'SNE' subtype and external validation
+    SNEdf = fullDF[fullDF["type"] == "SNE"].reset_index(drop=True)
+    pd_SNE = df_train_val_test(SNEdf, fract_sample=1, extern_val=True)
+    DSLymph_SNE_ext = {
+        x: LymphomaDataset(
+            pd_file=pd_SNE[x].reset_index(drop=True),
+            transform=transforms.Compose(
+                [
+                    Rescale(360),
+                    Crop(360),
+                    ToTensor(),
+                    transforms.Normalize(lymphomas_mean, lymphomas_std),
+                ]
+            ),
+        )
+        for x in ["train", "val", "test"]
+    }
+    with open("Dataset/DS_Lymph_SNE_ext.pkl", "wb") as f:
+        pickle.dump(DSLymph_SNE_ext, f, -1)
 
 
-# Dataset with only 'LY' subtype and external validation
-LYdf = fullDF[fullDF["type"] == "LY"].reset_index(drop=True)
-pd_LY = df_train_val_test(LYdf, fract_sample=1, extern_val=True)
-DSLymph_LY_ext = {
-    x: LymphomaDataset(
-        pd_file=pd_LY[x].reset_index(drop=True),
-        transform=transforms.Compose(
-            [
-                Rescale(360),
-                Crop(360),
-                ToTensor(),
-                transforms.Normalize(lymphomas_mean, lymphomas_std),
-            ]
-        ),
-    )
-    for x in ["train", "val", "test"]
-}
-with open("Dataset/DS_Lymph_LY_ext.pkl", "wb") as f:
-    pickle.dump(DSLymph_LY_ext, f, -1)
-
-# Dataset with only 'SNE' subtype and external validation
-SNEdf = fullDF[fullDF["type"] == "SNE"].reset_index(drop=True)
-pd_SNE = df_train_val_test(SNEdf, fract_sample=1, extern_val=True)
-DSLymph_SNE_ext = {
-    x: LymphomaDataset(
-        pd_file=pd_SNE[x].reset_index(drop=True),
-        transform=transforms.Compose(
-            [
-                Rescale(360),
-                Crop(360),
-                ToTensor(),
-                transforms.Normalize(lymphomas_mean, lymphomas_std),
-            ]
-        ),
-    )
-    for x in ["train", "val", "test"]
-}
-with open("Dataset/DS_Lymph_SNE_ext.pkl", "wb") as f:
-    pickle.dump(DSLymph_SNE_ext, f, -1)
+if __name__ == "__main__":
+    main()

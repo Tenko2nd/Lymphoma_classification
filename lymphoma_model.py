@@ -24,6 +24,10 @@ import math
 from tqdm import tqdm
 from datetime import datetime
 
+import warnings
+
+warnings.simplefilter("ignore", FutureWarning)
+
 
 def main():
 
@@ -90,9 +94,11 @@ def main():
     BATCH_SIZE = parser.parse_args().batch_size
     WORKERS = parser.parse_args().workers
     DATASET_PATH = parser.parse_args().dataset_path
-    LE_PATH = "Lymphoma_labelEncoder.pkl"
+    LE_PATH = "/work/icmub/mcl24326/code/create_dataset/Lymphoma_labelEncoder.pkl"
     LEARNING_RATE = parser.parse_args().learning_rate
-    SAVE_MODEL_PATH = f"Model/mod_{name}_{date}.pth"
+    SAVE_MODEL_PATH = (
+        f"/work/icmub/mcl24326/code/create_dataset/Model/mod_{name}_{date}.pth"
+    )
     NUM_EPOCHS = 1000
     EARLY_STOP = parser.parse_args().early_stop
     MINIMUM_EPOCH = 10

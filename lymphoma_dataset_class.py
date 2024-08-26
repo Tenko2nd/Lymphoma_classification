@@ -6,9 +6,9 @@
             - tabular are all the metadata associated with each images\033[0m
 """
 
-import torch
 from skimage import io, transform
 from torch.utils.data import Dataset
+import torch
 
 
 class LymphomaDataset(Dataset):

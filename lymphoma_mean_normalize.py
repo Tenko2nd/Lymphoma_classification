@@ -1,19 +1,17 @@
-"""
-    This python code is used only to calculate the values we need to make our normalization more efficient on our dataset.\n
-    This will print out the mean and standard deviation of your images based on the CSV you provided to your dataset.\n
-    //!\\ Use the same CSV and change the variable names based on yours!\n
+"""\033[38;5;224m    This python code is used only to calculate the values we need to make our normalization more efficient on our dataset.
+    This will print out the mean and standard deviation of your images based on the CSV you provided to your dataset.
+    \033[38;5;208m//!\\\\ Use the same CSV and change the variable names based on yours!\033[0m
 """
 
-import pandas as pd
 from PIL import Image
-import torchvision.transforms as transforms
+import pandas as pd
 import torch
-
+import torchvision.transforms as transforms
 import warnings
 
 warnings.simplefilter("ignore", UserWarning)
 
-# Read the CSV and store ir in a pandas dataframe
+# Read the CSV and store it in a pandas dataframe
 CSV_PATH = r"C:\Users\mc29047i\Documents\Data2train\data.csv"
 df = pd.read_csv(CSV_PATH)
 

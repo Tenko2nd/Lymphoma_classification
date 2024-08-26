@@ -3,12 +3,13 @@
 """
 
 import argparse
-import pandas as pd
-import numpy as np
 import os
 
+import numpy as np
+import pandas as pd
 
-def df_train_val_test(full_pd_df, st = "", fract_sample=1, extern_val=True):
+
+def df_train_val_test(full_pd_df, st, fract_sample, extern_val):
     """Create a csv file at the location /Dataset/{name}.csv of the code.
         Input a pandas dataframe for it to be worked on. you can choose to have a smaller dataset, using fract_sample.
         And to have an external validation (one patient can only be in one folder train/val/test) or internal
@@ -55,7 +56,7 @@ def df_train_val_test(full_pd_df, st = "", fract_sample=1, extern_val=True):
     # drop data with no folder attributed and save in csv file
     full_pd_df = full_pd_df.dropna(subset=["folder"])
     full_pd_df.to_csv(
-        f"{os.path.dirname(os.path.realpath(__file__))}/Dataset/DS_Lymph_{st if st is not None else ""}{f"{int(fract_sample*100)}p_" if fract_sample!=1 else ""}{"ext" if extern_val else "int"}.csv",
+        f"{os.getcwd()}/Dataset/DS_Lymph_{st if st is not None else ""}{f"{int(fract_sample*100)}p_" if fract_sample!=1 else ""}{"ext" if extern_val else "int"}.csv",
         index=False,
         header=True,
     )

@@ -6,27 +6,28 @@
         - early_stop (default 5)
         - name (default '')
     It will save the output model on the Model folder as 'mod_{name}_{date}.pth' and the learning curve of the model.
-    The model as an early stopping and only take the most efficient model in loss.
-    \033[38;5;213m
+    The model as an early stopping and only take the most efficient model in loss.\033[38;5;213m
 """
 
+from datetime import datetime
 import argparse
-import pandas as pd
-import lymphoma_dataset_class as L
-from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
-from torchvision import models
-import torch
-import constant as C
-import torch.nn as nn
-import torch.optim as optim
-from sklearn import preprocessing
 import math
+import warnings
+
+from sklearn import preprocessing
+from torch.utils.data import DataLoader
+from torchvision import models
 from torchvision import transforms
 from tqdm import tqdm
-from datetime import datetime
+import matplotlib.pyplot as plt
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
-import warnings
+import lymphoma_dataset_class as L
+import constant as C
+
 
 warnings.simplefilter("ignore", FutureWarning)
 
@@ -80,6 +81,13 @@ def main():
         type=int,
         help="The early stopping value for the model",
         required=False,
+    )
+
+    parser.add_argument(
+        "--pb_disable",
+        dest="disable",
+        action="store_true",
+        help="If you want to disable the progress bar (default : True)",
     )
 
     parser.add_argument(
@@ -166,6 +174,7 @@ def main():
             for idx, (inputs, labels, _) in tqdm(
                 enumerate(loaders[phase]),
                 total=(math.ceil(lenDataSet[phase] / BATCH_SIZE)),
+                disable=parser.parse_args().disable,
             ):
                 inputs = inputs.float().to(device)
                 labels = torch.tensor(le.transform(labels)).to(device)

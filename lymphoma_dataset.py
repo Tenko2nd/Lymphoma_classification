@@ -1,146 +1,40 @@
 """\033[38;5;224m    This python code is used to create datasets of lymphoma pictures with the data stored in the csv thanks to the code "lymphoma_csv_data.py".
-    It's using pytorch dataset class and some transformation (Rescale, Crop, ToTensor & Normalize) thanks to torchvision.
-    the data are stored as variable 'image', 'categorie' and 'tabular with :
-            - image in the form of torch.tensor (3, 360, 360)
-            - categorie is either 'LCM' ('Lymphome à cellule du manteau') ou 'LZM' ('Lymphome de la zone marginale')
-            - tabular are all the metadata associated with each images
-
-    The datasets created are stored in pickle files for you to use them later.
-    \033[38;5;208m//!\\\\ You need to import the class for you to use the pickled datasets !!!\033[38;5;213m
-
+    it automatically create a csv with a name based on the inputs given    
+    \033[38;5;213m
 """
 
 import argparse
-import torch
 import pandas as pd
-from skimage import io, transform
-from torch.utils.data import Dataset
-from torchvision import transforms
 import numpy as np
-import pickle
+import os
 
 
-class LymphomaDataset(Dataset):
-    """MZL & MCL Dataset"""
-
-    def __init__(self, pd_file, transform=None):
-        self.df = pd_file
-        self.transform = transform
-        self.classes = self.df["categorie"].unique().tolist()
-        self.tabular = self.df.drop(columns=["img_path", "categorie"])
-
-    def __len__(self) -> int:
-        return len(self.df)
-
-    def __getitem__(self, index):
-        if torch.is_tensor(index):
-            idx = idx.tolist()
-        image = io.imread(self.df.iloc[index]["img_path"]) / 255.0
-        categorie = self.df.iloc[index]["categorie"]
-        tabular = self.tabular.loc[index].to_dict()
-        if self.transform:
-            image = self.transform(image)
-        return image, categorie, tabular
-
-
-class Rescale(object):
-    """Rescale the image in a sample to a given size.
+def df_train_val_test(full_pd_df, st = "", fract_sample=1, extern_val=True):
+    """Create a csv file at the location /Dataset/{name}.csv of the code.
+        Input a pandas dataframe for it to be worked on. you can choose to have a smaller dataset, using fract_sample.
+        And to have an external validation (one patient can only be in one folder train/val/test) or internal
 
     Args:
-        output_size (tuple or int): Desired output size. If tuple, output is
-            matched to output_size. If int, smaller of image edges is matched
-            to output_size keeping aspect ratio the same.
-    """
+        full_pd_df (pandas.core.frame.DataFrame): The dataset you want to categorize train/val/test
+        st (str): the name of the subtype for saving
+        fract_sample (float, optional): the fraction of sample you want from your bigger dataset (between 0 and 1) . Defaults to 1.0.
+        extern_val (bool, optional): if you want external validation or not. Defaults to True.
 
-    def __init__(self, output_size):
-        assert isinstance(output_size, (int, tuple))
-        self.output_size = output_size
-
-    def __call__(self, image):
-
-        h, w = image.shape[:2]
-        if isinstance(self.output_size, int):
-            if h > w:
-                new_h, new_w = self.output_size * h / w, self.output_size
-            else:
-                new_h, new_w = self.output_size, self.output_size * w / h
-        else:
-            new_h, new_w = self.output_size
-
-        new_h, new_w = int(new_h), int(new_w)
-
-        return transform.resize(image, (new_h, new_w))
-
-
-class Crop(object):
-    """Crop the image in a sample.
-
-    Args:
-        output_size (tuple or int): Desired output size. If int, square crop is made.
-    """
-
-    def __init__(self, output_size):
-        assert isinstance(output_size, (int, tuple))
-        if isinstance(output_size, int):
-            self.output_size = (output_size, output_size)
-        else:
-            assert len(output_size) == 2
-            self.output_size = output_size
-
-    def __call__(self, image):
-
-        h, w = image.shape[:2]
-        new_h, new_w = self.output_size
-
-        top = int((h - new_h) / 2)
-        left = int((w - new_w) / 2)
-
-        image = image[top : top + new_h, left : left + new_w]
-
-        return image
-
-
-class ToTensor(object):
-    """Convert ndarrays in sample to Tensors."""
-
-    def __call__(self, image):
-        # swap color axis because
-        # numpy image: H x W x C
-        # torch image: C x H x W
-        return torch.from_numpy(image.transpose((2, 0, 1)))
-
-
-lymphomas_mean = torch.Tensor([0.8417, 0.7080, 0.7004])
-lymphomas_std = torch.Tensor([0.1695, 0.1980, 0.0855])
-
-
-def df_train_val_test(full_pd_df, fract_sample=1, extern_val=True):
-    """Create two pandas dataframes (train and validation) based on a bigger given in parameter.
-        It make sure there is the same number of data in each categories.
-        You can tune the percentile of data you want from your bigger dataframe, the percentile of train/validation and if you need external validation.
-
-    Args:
-        full_pd_df (pandas.core.frame.DataFrame): Dataframe with all internal informations
-        fract_sample (int, optional): If you only want a small part of a big dataset. Defaults to 1.
-        fract_train (float, optional): Percentile of data you want in your train set. Defaults to 0.8.
-        extern_val (bool, optional): If you want your validation to be external or not (internal). Defaults to True.
-
-    Returns:
-        dic of Dataframe: Dataframes train and val placed in a dic (accessed with ["train"] or ["val"])
+    Raises:
+        Exception: if fract_sample is not between 0 and 1
     """
     if fract_sample > 1 or fract_sample < 0:
         raise Exception(
             "Problem with the value of fract_sample, it must be between 0 and 1"
         )
-    # if internal validation
+    # if internal validation 80% train / 20% val
     if not extern_val:
-        dfTot = full_pd_df.sample(frac=fract_sample)
-        small_dfs = {"train": dfTot[dfTot.index % 5 < 3]}
-        small_dfs["val"] = dfTot[dfTot.index % 5 == 3]
-        small_dfs["test"] = dfTot[dfTot.index % 5 == 4]
+        full_pd_df = full_pd_df.sample(frac=fract_sample)
+        full_pd_df["folder"] = np.where(full_pd_df.index % 5 < 4, "train", "val")
 
-    # if external validation
+    # if external validation 60% train / 20% val / 20% test
     else:
+        # choose random patient (mix them in the process)
         sample_pat = np.random.choice(
             full_pd_df["patient"].unique(),
             int(full_pd_df["patient"].nunique() * fract_sample),
@@ -153,16 +47,22 @@ def df_train_val_test(full_pd_df, fract_sample=1, extern_val=True):
             sample_pat[train_size:-test_size],
             sample_pat[-test_size:],
         )
-        # Create the training and validation dataframes
-        small_dfs = {
-            "train": full_pd_df.query("patient in @train_patients"),
-            "val": full_pd_df.query("patient in @val_patients"),
-            "test": full_pd_df.query("patient in @test_patients"),
-        }
-    return small_dfs
+        # Mapping patient in folders train/val/test
+        patient_folder_map = {p: "train" for p in train_patients}
+        patient_folder_map.update({p: "val" for p in val_patients})
+        patient_folder_map.update({p: "test" for p in test_patients})
+        full_pd_df["folder"] = full_pd_df["patient"].map(patient_folder_map)
+
+    # drop data with no folder attributed and save in csv file
+    full_pd_df = full_pd_df.dropna(subset=["folder"])
+    full_pd_df.to_csv(
+        f"{os.path.dirname(os.path.realpath(__file__))}/Dataset/DS_Lymph_{st if st is not None else ""}{f"{int(fract_sample*100)}p_" if fract_sample!=1 else ""}{"ext" if extern_val else "int"}.csv",
+        index=False,
+        header=True,
+    )
 
 
-def main():
+def parser_init():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
@@ -170,106 +70,57 @@ def main():
     parser.add_argument(
         "-csv",
         "--csv_path",
-        help="The path of the csv with your data\033[0m",
+        help="The path of the input csv with your data",
+        type=str,
         required=True,
     )
 
-    CSV_PATH = parser.parse_args().csv_path
+    parser.add_argument(
+        "-st",
+        "--sub_type",
+        help="If you want your dataset to be only about one cell type (eg. 'LY', 'MO', ...)",
+        default=None,
+        type=str,
+        required=False,
+    )
+
+    parser.add_argument(
+        "-fs",
+        "--frac_sample",
+        help="If your dataset is to big, the fraction of data you would like (default : 1)",
+        default=1,
+        type=float,
+        required=False,
+    )
+
+    parser.add_argument(
+        "--int",
+        dest="extern_val",
+        action='store_false',
+        help="If you want you patient can be in multiple categories train/val/test (default : False)\033[0m"
+    )
+
+    parser.set_defaults(extern_val=True)
+
+
+    return parser
+
+
+def create_csv(p: argparse.ArgumentParser):
+    CSV_PATH = p.parse_args().csv_path
     fullDF = pd.read_csv(CSV_PATH)
 
-    # Dataset with all images
-    DSLymph = LymphomaDataset(
-        pd_file=fullDF,
-        transform=transforms.Compose(
-            [
-                Rescale(360),
-                Crop(360),
-                ToTensor(),
-                transforms.Normalize(lymphomas_mean, lymphomas_std),
-            ]
-        ),
-    )
-    with open("Dataset/DS_Lymph.pkl", "wb") as f:
-        pickle.dump(DSLymph, f, -1)
+    st = p.parse_args().sub_type
+    if st:
+        fullDF = fullDF[fullDF["type"] == st].reset_index(drop=True)
+        st += "_"
 
-    # Dataset with only around 30% images and external validation
-    pd_small_ext = df_train_val_test(fullDF, fract_sample=0.3, extern_val=True)
-    DSLymph_small_ext = {
-        x: LymphomaDataset(
-            pd_file=pd_small_ext[x].reset_index(drop=True),
-            transform=transforms.Compose(
-                [
-                    Rescale(360),
-                    Crop(360),
-                    ToTensor(),
-                    transforms.Normalize(lymphomas_mean, lymphomas_std),
-                ]
-            ),
-        )
-        for x in ["train", "val", "test"]
-    }
-    with open("Dataset/DS_Lymph_small_ext.pkl", "wb") as f:
-        pickle.dump(DSLymph_small_ext, f, -1)
-
-    # Dataset with only around 30% images and internal validation
-    pd_small_int = df_train_val_test(fullDF, fract_sample=0.3, extern_val=False)
-    DSLymph_small_int = {
-        x: LymphomaDataset(
-            pd_file=pd_small_int[x].reset_index(drop=True),
-            transform=transforms.Compose(
-                [
-                    Rescale(360),
-                    Crop(360),
-                    ToTensor(),
-                    transforms.Normalize(lymphomas_mean, lymphomas_std),
-                ]
-            ),
-        )
-        for x in ["train", "val", "test"]
-    }
-    with open("Dataset/DS_Lymph_small_int.pkl", "wb") as f:
-        pickle.dump(DSLymph_small_int, f, -1)
-
-    # Dataset with only 'LY' subtype and external validation
-    LYdf = fullDF[fullDF["type"] == "LY"].reset_index(drop=True)
-    pd_LY = df_train_val_test(LYdf, fract_sample=1, extern_val=True)
-    DSLymph_LY_ext = {
-        x: LymphomaDataset(
-            pd_file=pd_LY[x].reset_index(drop=True),
-            transform=transforms.Compose(
-                [
-                    Rescale(360),
-                    Crop(360),
-                    ToTensor(),
-                    transforms.Normalize(lymphomas_mean, lymphomas_std),
-                ]
-            ),
-        )
-        for x in ["train", "val", "test"]
-    }
-    with open("Dataset/DS_Lymph_LY_ext.pkl", "wb") as f:
-        pickle.dump(DSLymph_LY_ext, f, -1)
-
-    # Dataset with only 'SNE' subtype and external validation
-    SNEdf = fullDF[fullDF["type"] == "SNE"].reset_index(drop=True)
-    pd_SNE = df_train_val_test(SNEdf, fract_sample=1, extern_val=True)
-    DSLymph_SNE_ext = {
-        x: LymphomaDataset(
-            pd_file=pd_SNE[x].reset_index(drop=True),
-            transform=transforms.Compose(
-                [
-                    Rescale(360),
-                    Crop(360),
-                    ToTensor(),
-                    transforms.Normalize(lymphomas_mean, lymphomas_std),
-                ]
-            ),
-        )
-        for x in ["train", "val", "test"]
-    }
-    with open("Dataset/DS_Lymph_SNE_ext.pkl", "wb") as f:
-        pickle.dump(DSLymph_SNE_ext, f, -1)
+    frac_sample = p.parse_args().frac_sample
+    extern_val = p.parse_args().extern_val
+    print(extern_val)
+    df_train_val_test(fullDF, st, frac_sample, extern_val)
 
 
 if __name__ == "__main__":
-    main()
+    parser = parser_init()
+    create_csv(parser)

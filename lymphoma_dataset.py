@@ -1,6 +1,5 @@
 """\033[38;5;224m    This python code is used to create datasets of lymphoma pictures with the data stored in the csv thanks to the code "lymphoma_csv_data.py".
-    it automatically create a csv with a name based on the inputs given    
-    \033[38;5;213m
+    it automatically create a csv with a name based on the inputs given\033[38;5;213m
 """
 
 import argparse
@@ -112,12 +111,14 @@ def create_csv(p: argparse.ArgumentParser):
 
     st = p.parse_args().sub_type
     if st:
-        fullDF = fullDF[fullDF["type"] == st].reset_index(drop=True)
-        st += "_"
+        if st in fullDF['type'].values:
+            fullDF = fullDF[fullDF["type"] == st].reset_index(drop=True)
+            st += "_"
+        else:
+            raise Exception(f"\033[38;5;208m//!\\\\ the subtype {st} is not in the dataset!\033[0m")
 
     frac_sample = p.parse_args().frac_sample
     extern_val = p.parse_args().extern_val
-    print(extern_val)
     df_train_val_test(fullDF, st, frac_sample, extern_val)
 
 

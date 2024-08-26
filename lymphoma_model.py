@@ -11,16 +11,18 @@
 """
 
 import argparse
-from lymphoma_dataset import LymphomaDataset, Rescale, Crop, ToTensor
+import pandas as pd
+import lymphoma_dataset_class as L
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from torchvision import models
 import torch
-import pickle
+import constant as C
 import torch.nn as nn
 import torch.optim as optim
 from sklearn import preprocessing
 import math
+from torchvision import transforms
 from tqdm import tqdm
 from datetime import datetime
 
@@ -94,7 +96,6 @@ def main():
     BATCH_SIZE = parser.parse_args().batch_size
     WORKERS = parser.parse_args().workers
     DATASET_PATH = parser.parse_args().dataset_path
-    LE_PATH = "/work/icmub/mcl24326/code/create_dataset/Lymphoma_labelEncoder.pkl"
     LEARNING_RATE = parser.parse_args().learning_rate
     SAVE_MODEL_PATH = (
         f"/work/icmub/mcl24326/code/create_dataset/Model/mod_{name}_{date}.pth"
@@ -103,21 +104,28 @@ def main():
     EARLY_STOP = parser.parse_args().early_stop
     MINIMUM_EPOCH = 10
 
-    with open(DATASET_PATH, "rb") as f:
-        DATASET = LymphomaDataset
-        DATASET = pickle.load(f)
-
-    train_data, val_data, test_data = [DATASET[x] for x in ["train", "val", "test"]]
-
-    lenDataSet = {
-        "train": len(train_data),
-        "val": len(val_data),
-        "test": len(test_data),
+    df = pd.read_csv(DATASET_PATH)
+    dataset = {
+        x: L.LymphomaDataset(
+            pd_file=df.loc[df["folder"] == x].reset_index(drop=True),
+            transform=transforms.Compose(
+                [
+                    L.Rescale(360),
+                    L.Crop(360),
+                    L.ToTensor(),
+                    transforms.Normalize(C.lymphomas_mean, C.lymphomas_std),
+                ]
+            ),
+        )
+        for x in ["train", "val"] + (["test"] if "test" in df["folder"].values else [])
     }
 
-    with open(LE_PATH, "rb") as f:
-        le = preprocessing.LabelEncoder()
-        le.classes_ = pickle.load(f)
+    train_data, val_data = [dataset[x] for x in ["train", "val"]]
+
+    lenDataSet = {"train": len(train_data), "val": len(val_data)}
+
+    le = preprocessing.LabelEncoder()
+    le.fit(dataset["train"].classes)
 
     loaders = {
         "train": DataLoader(
@@ -128,11 +136,11 @@ def main():
         ),
     }
 
-    model = models.resnet18(weights="DEFAULT")
+    model = models.resnet18(weights="DEFAULT")  # change weights
 
     # Freeze all layers except the final classification layer
     for name, param in model.named_parameters():
-        param.requires_grad = "fc" in name
+        param.requires_grad = "fc" in name  # try all layers
 
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -185,9 +193,7 @@ def main():
             else:
                 if epoch_loss < min(valLossList) if valLossList else float("inf"):
                     print(
-                        "\033[92m "
-                        + "Best model "
-                        + "\033[95m\033[3m"
+                        "\033[92mBest model\033[95m\033[3m"
                         + f"(Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f})\033[0m"
                     )
                     # Save the model

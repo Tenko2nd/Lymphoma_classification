@@ -19,6 +19,7 @@ class LymphomaDataset(Dataset):
         self.transform = transform
         self.classes = self.df["categorie"].unique().tolist()
         self.tabular = self.df.drop(columns=["img_path", "categorie", "folder"])
+        self.targets = self.df["categorie"].tolist()
 
     def __len__(self) -> int:
         return len(self.df)

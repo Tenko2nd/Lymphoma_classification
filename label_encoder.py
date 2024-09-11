@@ -34,7 +34,7 @@ def main():
 
     df = pd.read_csv(parser.parse_args().dataset_path)
     dataset = L.LymphomaDataset(
-        pd_file=df.loc[df["folder"] == "train"].reset_index(drop=True),
+        pd_file=df.loc[df["folder"] == "train_1"].reset_index(drop=True),
         transform=transforms.Compose(
             [
                 L.Rescale(360),

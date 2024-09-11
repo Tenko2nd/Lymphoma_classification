@@ -1,0 +1,3 @@
+[submodule "IftimDevLib"]
+	path = IftimDevLib
+	url = https://gitlab.in2p3.fr/iftim/IftimDevLib

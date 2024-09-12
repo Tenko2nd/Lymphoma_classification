@@ -1,4 +1,5 @@
 from time import perf_counter as timer
+from collections import defaultdict
 
 from sklearn.metrics import precision_recall_curve, auc
 from sklearn.metrics import roc_curve, roc_auc_score
@@ -171,7 +172,6 @@ def train(
     model.to(device)
 
     start_time = timer()
-
     for epoch in range(epochs):
         epoch_start = timer()
         train_loss, train_auc = train_step(
@@ -280,66 +280,91 @@ def test(loader, model_path, le, disable_tqdm):
     Returns:
         List: The lists of targets and predictions of the model
     """
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Load the model
     model = models.efficientnet_b3()
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    model.load_state_dict(
+        torch.load(model_path, weights_only=True, map_location=torch.device(device))
+    )
     model.eval()
     model = model.to(device)
 
-    y_pred = None
-    y_targ = None
+    # Initialize a defaultdict with a list as default value
+    patient_preds = defaultdict(list)
+    patient_targ = {}
     with torch.inference_mode():
-        for images, target, _ in tqdm(loader, disable=disable_tqdm):
+        for images, target, tabular in tqdm(loader, disable=disable_tqdm):
+            patients = tabular["patient"]
             images = images.float()
 
-            target = torch.from_numpy(le.transform(target))
-            if y_targ is None:
-                y_targ = target.squeeze(-1)
-            else:
-                y_targ = torch.cat((y_targ, target.squeeze(-1)), dim=0)
+            target = le.transform(target)
 
             images = images.to(device, dtype=torch.float)
-            target = target.to(device, dtype=torch.float)
 
             outputs = model(images)
             preds = F.softmax(outputs, dim=1)[:, 1].cpu()
+            for patient, targ in zip(patients, target):
+                if patient not in patient_targ:
+                    patient_targ[patient] = targ
 
-            if y_pred is None:
-                y_pred = preds
-            else:
-                y_pred = torch.cat((y_pred, preds), dim=0)
+            # Iterate over the patients and values
+            for patient, pred in zip(patients, preds):
+                # Append the value to the list of the corresponding patient
+                patient_preds[patient].append(pred)
 
-    return y_targ, y_pred
+        patient_preds_med = {
+            patient: np.median(values) for patient, values in patient_preds.items()
+        }
+        patient_preds_moy = {
+            patient: np.mean(values) for patient, values in patient_preds.items()
+        }
+
+        patient_merged_dic = {}
+        for key in set(list(patient_preds_med.keys())):
+            patient_merged_dic[key] = {
+                "med": patient_preds_med.get(key, 0),
+                "moy": patient_preds_moy.get(key, 0),
+                "targ": patient_targ.get(key, 0),
+            }
+
+    return patient_merged_dic
 
 
-def saveAUC(y_targ, y_pred, save_path):
+def saveAUC(patient_merged_dic, save_path):
     """Save the AUC scores for the model
 
     Args:
-        y_test (List): list of targets
+        y_targ (List): list of targets
         y_pred (List): list of predictions of the model
         save_path (str): path to save the images
     """
+    y = {"med": [], "moy": [], "targ": []}
+    for _, value in patient_merged_dic.items():
+        y["med"].append(value["med"])
+        y["moy"].append(value["moy"])
+        y["targ"].append(value["targ"])
+
     with plt.style.context("ggplot"):
-        # ROC
-        fpr, tpr, _ = roc_curve(y_targ, y_pred)
-        roc_auc = roc_auc_score(y_targ, y_pred)
-        plt.figure()
-        plt.plot(fpr, tpr, label=f"Test dataset (AUC:{roc_auc:.3f})")
-        plt.plot([0, 1], [0, 1], linestyle="--", label="No Skill")
-        plt.ylabel("True Positive Rate")
-        plt.xlabel("False Positive Rate")
-        plt.legend()
-        plt.savefig(f"{save_path}_auc_roc.png")
-        # Precision Recall
-        precision, recall, _ = precision_recall_curve(y_targ, y_pred)
-        pr_auc = auc(recall, precision)
-        plt.figure()
-        plt.plot(recall, precision, label=f"Test dataset (AUC:{pr_auc:.3f})")
-        plt.plot([1, 0], [0.5, 0.5], linestyle="--", label="No Skill")
-        plt.ylabel("Precision")
-        plt.xlabel("Recall")
-        plt.legend()
-        plt.savefig(f"{save_path}_auc_pr.png")
+        for thresh in ["med", "moy"]:
+            # ROC
+            fpr, tpr, _ = roc_curve(y["targ"], y[thresh])
+            roc_auc = roc_auc_score(y["targ"], y[thresh])
+            plt.figure()
+            plt.plot(fpr, tpr, label=f"Test dataset (AUC:{roc_auc:.3f})")
+            plt.plot([0, 1], [0, 1], linestyle="--", label="No Skill")
+            plt.ylabel("True Positive Rate")
+            plt.xlabel("False Positive Rate")
+            plt.legend()
+            plt.savefig(f"{save_path}_{thresh}_auc_roc.png")
+            # Precision Recall
+            precision, recall, _ = precision_recall_curve(y["targ"], y[thresh])
+            pr_auc = auc(recall, precision)
+            plt.figure()
+            plt.plot(recall, precision, label=f"Test dataset (AUC:{pr_auc:.3f})")
+            plt.plot([1, 0], [0.5, 0.5], linestyle="--", label="No Skill")
+            plt.ylabel("Precision")
+            plt.xlabel("Recall")
+            plt.legend()
+            plt.savefig(f"{save_path}_{thresh}_auc_pr.png")

@@ -74,9 +74,9 @@ def parser_init():
     parser.add_argument(
         "-st",
         "--sub_type",
-        help="If you want your dataset to be only about one cell type (eg. 'LY', 'MO', ...)",
+        help="If you want your dataset to be only about one or multiple cell type (eg. ['LY'] or ['MO', 'SNE'])",
         default=None,
-        type=str,
+        nargs='+',
         required=False,
     )
 
@@ -107,12 +107,12 @@ def create_csv(p: argparse.ArgumentParser):
     fullDF = pd.read_csv(CSV_PATH)
 
     st = p.parse_args().sub_type
+    print(st)
     if st:
-        if st in fullDF['type'].values:
-            fullDF = fullDF[fullDF["type"] == st].reset_index(drop=True)
-            st += "_"
-        else:
-            raise Exception(f"\033[38;5;208m//!\\\\ the subtype {st} is not in the dataset!\033[0m")
+        fullDF = fullDF[fullDF["type"].isin(st)].reset_index(drop=True)
+        st = '_'.join(st)+'_'
+        # else:
+        #     raise Exception(f"\033[38;5;208m//!\\\\ the subtype {st} is not in the dataset!\033[0m")
 
     frac_sample = p.parse_args().frac_sample
     extern_val = p.parse_args().extern_val

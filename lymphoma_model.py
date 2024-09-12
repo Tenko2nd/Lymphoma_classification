@@ -122,8 +122,8 @@ if __name__ == "__main__":
             pd_file=dataset_df[x].reset_index(drop=True),
             transform=transforms.Compose(
                 [
-                    L.Rescale(360),
-                    L.Crop(360),
+                    L.Rescale(300),
+                    L.Crop(300),
                     L.ToTensor(),
                     transforms.Normalize(C.lymphomas_mean, C.lymphomas_std),
                 ]
@@ -131,7 +131,6 @@ if __name__ == "__main__":
         )
         for x in ["train", "val"] + (["test"] if "test" in dataset_df.keys() else [])
     }
-
     lenDataset = {x: len(dataset[x]) for x in dataset.keys()}
     
     le_path = f"{os.getcwd()}/Lymphoma_labelEncoder.pkl"
@@ -176,5 +175,5 @@ if __name__ == "__main__":
         save_path=save_model_path.split('.')[0])
 
     if "test" in dataset:
-        y_test, y_pred = tt.test(loaders["test"], save_model_path, le, p.parse_args().disable_tqdm)
-        tt.saveAUC(y_test, y_pred, save_model_path.split('.')[0])
+        patient_merged_dic = tt.test(loaders["test"], save_model_path, le, p.parse_args().disable_tqdm)
+        tt.saveAUC(patient_merged_dic, save_model_path.split('.')[0])

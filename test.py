@@ -155,10 +155,9 @@ if __name__ == "__main__":
             pd_file=test_df.reset_index(drop=True),
             transform=transforms.Compose(
                 [
-                    L.Rescale(300),
-                    L.Crop(300),
-                    L.ToTensor(),
-                    transforms.Normalize(C.lymphomas_mean, C.lymphomas_std),
+                    transforms.ToTensor(),
+                    transforms.Resize(size=C.IMG_SIZE, interpolation=transforms.InterpolationMode.BILINEAR),
+                    transforms.CenterCrop(C.IMG_SIZE),
                 ]
             ),
         )

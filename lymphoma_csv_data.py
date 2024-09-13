@@ -51,27 +51,27 @@ for c in categories:
     print(f"taille categorie {c} = {len(image_paths[c])}")
 
 
-# Get the tabular metadata
-tabularPath = glob.glob(f"{DS_FOLDER}*.xlsx", recursive=False)
+# # Get the tabular metadata
+# tabularPath = glob.glob(f"{DS_FOLDER}*.xlsx", recursive=False)
 
-xls = pd.ExcelFile(tabularPath[0])
-lcmDf, lzmDf = pd.read_excel(xls, "LCM_send"), pd.read_excel(xls, "LZM_send")
-lcmDf, lzmDf = lcmDf[lcmDf["ID"].notnull()], lzmDf[lzmDf["ID"].notnull()]
+# xls = pd.ExcelFile(tabularPath[0])
+# lcmDf, lzmDf = pd.read_excel(xls, "LCM_send"), pd.read_excel(xls, "LZM_send")
+# lcmDf, lzmDf = lcmDf[lcmDf["ID"].notnull()], lzmDf[lzmDf["ID"].notnull()]
 
 
-# All the collumns usefull for our dataset
-tabCol = [
-    "CD5",
-    "CD10",
-    "CD20",
-    "CD23",
-    "CD38",
-    "CD43",
-    "CD79b",
-    "CD180",
-    "FMC7",
-    "intensité",
-]
+# # All the collumns usefull for our dataset
+# tabCol = [
+#     "CD5",
+#     "CD10",
+#     "CD20",
+#     "CD23",
+#     "CD38",
+#     "CD43",
+#     "CD79b",
+#     "CD180",
+#     "FMC7",
+#     "intensité",
+# ]
 
 # Write data in csv file
 with open(f"{DS_FOLDER}data.csv", "w", newline="") as csvfile:
@@ -80,20 +80,18 @@ with open(f"{DS_FOLDER}data.csv", "w", newline="") as csvfile:
     )
     # Write first line as legends
     dataWriter.writerow(
-        ["img_path", "categorie", "type", "patient"] + [unidecode(x) for x in tabCol]
+        ["img_path", "categorie", "type", "patient"]  # + [unidecode(x) for x in tabCol]
     )
-    for c in categories:
-        # Ignore the SGTEM pictures (because I don't know what it is)
-        if c != "SGTEM":
-            df = lzmDf if (c == "LZM") else lcmDf
-            for path in image_paths[c]:
-                typ = os.path.basename(path).split("_")[0]
-                patient = path.split("/")[-2]
-                # Normalize, remove accents
-                tabular = [
-                    unidecode(x) if type(x) == str else x
-                    for x in df.loc[df["ID"] == patient, tabCol]
-                    .values.flatten()
-                    .tolist()
-                ]
-                dataWriter.writerow([path, c, typ, patient] + tabular)
+    for c in ["LCM", "LZM"]:
+        # df = lzmDf if (c == "LZM") else lcmDf
+        for path in image_paths[c]:
+            typ = os.path.basename(path).split("_")[0]
+            # Get the parent directory of the file
+            parent_dir = os.path.dirname(path)
+            patient = os.path.basename(parent_dir)
+            # # Normalize, remove accents
+            # tabular = [
+            #     unidecode(x) if type(x) == str else x
+            #     for x in df.loc[df["ID"] == patient, tabCol].values.flatten().tolist()
+            # ]
+            dataWriter.writerow([path, c, typ, patient])  # + tabular

@@ -122,17 +122,16 @@ if __name__ == "__main__":
             pd_file=dataset_df[x].reset_index(drop=True),
             transform=transforms.Compose(
                 [
-                    L.Rescale(300),
-                    L.Crop(300),
-                    L.ToTensor(),
-                    transforms.Normalize(C.lymphomas_mean, C.lymphomas_std),
+                    transforms.ToTensor(),
+                    transforms.Resize(size = C.IMG_SIZE, interpolation=transforms.InterpolationMode.BILINEAR),
+                    transforms.CenterCrop(C.IMG_SIZE),
                 ]
             ),
         )
         for x in ["train", "val"] + (["test"] if "test" in dataset_df.keys() else [])
     }
     lenDataset = {x: len(dataset[x]) for x in dataset.keys()}
-    
+
     le_path = f"{os.getcwd()}/Lymphoma_labelEncoder.pkl"
     with open(le_path, "rb") as f:
         le = preprocessing.LabelEncoder()

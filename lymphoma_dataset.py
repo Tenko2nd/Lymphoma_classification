@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 
-def df_train_val_test(full_pd_df, st, fract_sample, extern_val):
+def df_train_val_test(full_pd_df, st, no_mult,fract_sample, extern_val):
     """ Create a csv file with a new column folder for later repartition. It as multiple train and no validation for k-fold CV.
         Input a pandas dataframe for it to be worked on. you can choose to have a smaller dataset, using fract_sample.
         And to have an external validation (one patient can only be in one folder train/val/test) or internal.
@@ -52,7 +52,7 @@ def df_train_val_test(full_pd_df, st, fract_sample, extern_val):
     # drop data with no folder attributed and save in csv file
     full_pd_df = full_pd_df.dropna(subset=["folder"])
     full_pd_df.to_csv(
-        f"{os.getcwd()}/Dataset/DS_Lymph_{st if st is not None else ""}{f"{int(fract_sample*100)}p_" if fract_sample!=1 else ""}{"ext" if extern_val else "int"}.csv",
+        f"{os.getcwd()}/Dataset/DS_Lymph_{st if st is not None else ""}{f"{int(fract_sample*100)}p_" if fract_sample!=1 else ""}{"ext" if extern_val else "int"}{"_NM" if no_mult else ""}.csv",
         index=False,
         header=True,
     )
@@ -93,7 +93,14 @@ def parser_init():
         "--int",
         dest="extern_val",
         action='store_false',
-        help="If you want you patient can be in multiple categories train/val/test (default : False)\033[0m"
+        help="If you want your patient to be in multiple categories train/val/test"
+    )
+    
+    parser.add_argument(
+        "--no_mult",
+        dest="no_multiple",
+        action='store_true',
+        help="If you don't want to take into account the images with multiple different cells in it\033[0m"
     )
 
     parser.set_defaults(extern_val=True)
@@ -107,16 +114,17 @@ def create_csv(p: argparse.ArgumentParser):
     fullDF = pd.read_csv(CSV_PATH)
 
     st = p.parse_args().sub_type
-    print(st)
+    no_multiple = p.parse_args().no_multiple
     if st:
         fullDF = fullDF[fullDF["type"].isin(st)].reset_index(drop=True)
         st = '_'.join(st)+'_'
-        # else:
-        #     raise Exception(f"\033[38;5;208m//!\\\\ the subtype {st} is not in the dataset!\033[0m")
+        #raise Exception(f"\033[38;5;208m//!\\\\ the subtype {st} is not in the dataset!\033[0m")
+    elif no_multiple:
+        fullDF = fullDF[fullDF["type"].str.find('+') == -1].reset_index(drop=True)
 
     frac_sample = p.parse_args().frac_sample
     extern_val = p.parse_args().extern_val
-    df_train_val_test(fullDF, st, frac_sample, extern_val)
+    df_train_val_test(fullDF, st, no_multiple,frac_sample, extern_val)
 
 
 if __name__ == "__main__":

@@ -23,7 +23,11 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
     # Load train and validation dataset
     loaders = {
         x: DataLoader(
-            dataset[x], batch_size=batch_size, shuffle=True, num_workers=workers
+            dataset[x],
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=workers,
+            drop_last=True,
         )
         for x in ["train", "val"] + (["test"] if "test" in dataset.keys() else [])
     }

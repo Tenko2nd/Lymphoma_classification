@@ -17,20 +17,21 @@ dftype = {
 minDataSize = 1000  # The minimum number of pictures you tolerate in your dataset
 minCatSize = 500  # The minimum number of picture you tolerate for the categories
 
-print("Type\tSize\tLCM/LZM repartition")
+print("Type\t\tSize\tLCM/LZM repartition")
 for x in dftype:
-    color = "\033[0m"  # no color
-    lenTOT, lenLCM, lenLZM = (
-        len(dftype[x]),
-        len(dftype[x][dftype[x]["categorie"] == "LCM"]),
-        len(dftype[x][dftype[x]["categorie"] == "LZM"]),
-    )
-    if lenTOT < minDataSize:
-        color = "\033[38;5;124m"  # red color
-    elif lenLCM < minCatSize or lenLZM < minCatSize:
-        color = "\033[38;5;130m"  # brow color
-    else:
-        color = "\033[38;5;154m"  # green color
-    print(
-        f"{color}{x}\t{lenTOT}\tLCM : {(lenLCM/lenTOT)*100:.1f}%\tLZM : {(lenLZM/lenTOT)*100:.1f}%\033[0m"
-    )
+    if "+" not in x:
+        color = "\033[0m"  # no color
+        lenTOT, lenLCM, lenLZM = (
+            len(dftype[x]),
+            len(dftype[x][dftype[x]["categorie"] == "LCM"]),
+            len(dftype[x][dftype[x]["categorie"] == "LZM"]),
+        )
+        if lenTOT < minDataSize:
+            color = "\033[38;5;124m"  # red color
+        elif lenLCM < minCatSize or lenLZM < minCatSize:
+            color = "\033[38;5;130m"  # brow color
+        else:
+            color = "\033[38;5;154m"  # green color
+        print(
+            f"{color}{x}\t\t{lenTOT}\tLCM : {(lenLCM/lenTOT)*100:.1f}%\tLZM : {(lenLZM/lenTOT)*100:.1f}%\033[0m"
+        )

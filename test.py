@@ -57,7 +57,7 @@ def test(loader, model_path, le):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Load the model
-    model = models.efficientnet_b3()
+    model = models.efficientnet_b4()
     model.load_state_dict(torch.load(model_path, weights_only=True, map_location=torch.device(device)))
     model.eval()
     model = model.to(device)
@@ -102,7 +102,7 @@ def test(loader, model_path, le):
 
     return patient_merged_dic
 
-def saveAUC(patient_merged_dic, save_path):
+def saveAUC(resTest, save_path):
     """Save the AUC scores for the model
 
     Args:
@@ -110,30 +110,36 @@ def saveAUC(patient_merged_dic, save_path):
         y_pred (List): list of predictions of the model
         save_path (str): path to save the images
     """
-    y = {"med": [], "moy": [], "targ": []}
-    for _, value in patient_merged_dic.items():
-        y["med"].append(value["med"])
-        y["moy"].append(value["moy"])
-        y["targ"].append(value["targ"])
-    
+    perFolder = {}
+    for folder, patient_merged_dic in resTest.items():
+        y = {"med": [], "moy": [], "targ": []}
+        for _, value in patient_merged_dic.items():
+            y["med"].append(value["med"])
+            y["moy"].append(value["moy"])
+            y["targ"].append(value["targ"])
+        perFolder[folder] = y
     with plt.style.context("ggplot"):
         for thresh in ["med", "moy"]:
             # ROC
-            fpr, tpr, _ = roc_curve(y["targ"], y[thresh])
-            roc_auc = roc_auc_score(y["targ"], y[thresh])
             plt.figure()
-            plt.plot(fpr, tpr, label=f"Test dataset (AUC:{roc_auc:.3f})")
             plt.plot([0, 1], [0, 1], linestyle="--", label="No Skill")
+            for folder, y in perFolder.items():
+                fpr, tpr, _ = roc_curve(y["targ"], y[thresh])
+                roc_auc = roc_auc_score(y["targ"], y[thresh])
+                plt.plot(fpr, tpr, label=f"{folder} dataset (AUC:{roc_auc:.3f})")
             plt.ylabel("True Positive Rate")
             plt.xlabel("False Positive Rate")
             plt.legend()
             plt.savefig(f"{save_path}_{thresh}_auc_roc.png")
             # Precision Recall
-            precision, recall, _ = precision_recall_curve(y["targ"], y[thresh])
-            pr_auc = auc(recall, precision)
             plt.figure()
-            plt.plot(recall, precision, label=f"Test dataset (AUC:{pr_auc:.3f})")
             plt.plot([1, 0], [0.5, 0.5], linestyle="--", label="No Skill")
+            for folder, y in perFolder.items():
+                precision, recall, _ = precision_recall_curve(y["targ"], y[thresh])
+                pr_auc = auc(recall, precision)
+                plt.plot(
+                    recall, precision, label=f"{folder} dataset (AUC:{pr_auc:.3f})"
+                )
             plt.ylabel("Precision")
             plt.xlabel("Recall")
             plt.legend()
@@ -141,6 +147,7 @@ def saveAUC(patient_merged_dic, save_path):
 
 
 if __name__ == "__main__":
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'  # helps prevent out-of-memory errors and makes more efficient use of the available GPU memory
     parser = parser_init()
 
     dataset_path = parser.parse_args().dataset_path

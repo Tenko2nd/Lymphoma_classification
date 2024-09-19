@@ -1,1 +1,1 @@
-IMG_SIZE = 300
+IMG_SIZE = 380

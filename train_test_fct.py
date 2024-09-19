@@ -36,8 +36,8 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
 
 def create_model(learning_rate: float = 0.0001):
     # create model
-    model = models.efficientnet_b3(
-        weights=models.EfficientNet_B3_Weights.DEFAULT
+    model = models.efficientnet_b4(
+        weights=models.EfficientNet_B4_Weights.DEFAULT
     )  # change weights
     # Freeze all layers except the final classification layer
     for name, param in model.named_parameters():
@@ -79,7 +79,6 @@ def train_step(
             tr_labels = labels.squeeze(-1)
         else:
             tr_labels = torch.cat((tr_labels, labels.squeeze(-1)), dim=0)
-
         images = inputs.to(device, dtype=torch.float)
         labels = labels.to(device, dtype=torch.float)
 
@@ -258,16 +257,20 @@ def saveLearnCurves(tLoss, vLoss, tAcc, vAcc, save_path):
         return np.where(x >= zoom, x, zoom + (x - zoom) * 0.1)
 
     with plt.style.context("ggplot"):
+        plt.figure()
         axl = plt.subplot(2, 1, 1)
         axl.plot(tLoss, "g", vLoss, "r")
+        # Mark the minimum point
+        axl.scatter(vLoss.index(min(vLoss)), min(vLoss), color="red", marker="o", s=50)
         # apply the custom scale to the axis
         axl.set_yscale("function", functions=(custom_scale, custom_scale_inv))
         # set the y-axis limits to ensure the custom scale is applied correctly
-        axl.set_ylim([minLoss - minLoss / 10, maxLoss + maxLoss / 10])
+        axl.set_ylim([0, maxLoss + maxLoss / 10])
         axl.legend(("train", "val"))
-        axl.set_title(f"Loss (min val: {min(vLoss):.4f})")
+        axl.set_title(f"Loss (min Loss: {min(vLoss):.4f})")
         axv = plt.subplot(2, 1, 2)
         axv.plot(tAcc, "g", vAcc, "r")
+        axv.scatter(vAcc.index(max(vAcc)), max(vAcc), color="red", marker="o", s=50)
         axv.set_title(f"AUROC (max val: {max(vAcc):.4f})", y=-0.01)
         axv.legend(("train", "val"))
         plt.savefig(f"{save_path}_res.png")
@@ -288,7 +291,7 @@ def test(loader, model_path, le, disable_tqdm):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Load the model
-    model = models.efficientnet_b3()
+    model = models.efficientnet_b4()
     model.load_state_dict(
         torch.load(model_path, weights_only=True, map_location=torch.device(device))
     )
@@ -336,7 +339,7 @@ def test(loader, model_path, le, disable_tqdm):
     return patient_merged_dic
 
 
-def saveAUC(patient_merged_dic, save_path):
+def saveAUC(resTest, save_path):
     """Save the AUC scores for the model
 
     Args:
@@ -344,30 +347,36 @@ def saveAUC(patient_merged_dic, save_path):
         y_pred (List): list of predictions of the model
         save_path (str): path to save the images
     """
-    y = {"med": [], "moy": [], "targ": []}
-    for _, value in patient_merged_dic.items():
-        y["med"].append(value["med"])
-        y["moy"].append(value["moy"])
-        y["targ"].append(value["targ"])
-
+    perFolder = {}
+    for folder, patient_merged_dic in resTest.items():
+        y = {"med": [], "moy": [], "targ": []}
+        for _, value in patient_merged_dic.items():
+            y["med"].append(value["med"])
+            y["moy"].append(value["moy"])
+            y["targ"].append(value["targ"])
+        perFolder[folder] = y
     with plt.style.context("ggplot"):
         for thresh in ["med", "moy"]:
             # ROC
-            fpr, tpr, _ = roc_curve(y["targ"], y[thresh])
-            roc_auc = roc_auc_score(y["targ"], y[thresh])
             plt.figure()
-            plt.plot(fpr, tpr, label=f"Test dataset (AUC:{roc_auc:.3f})")
             plt.plot([0, 1], [0, 1], linestyle="--", label="No Skill")
+            for folder, y in perFolder.items():
+                fpr, tpr, _ = roc_curve(y["targ"], y[thresh])
+                roc_auc = roc_auc_score(y["targ"], y[thresh])
+                plt.plot(fpr, tpr, label=f"{folder} dataset (AUC:{roc_auc:.3f})")
             plt.ylabel("True Positive Rate")
             plt.xlabel("False Positive Rate")
             plt.legend()
             plt.savefig(f"{save_path}_{thresh}_auc_roc.png")
             # Precision Recall
-            precision, recall, _ = precision_recall_curve(y["targ"], y[thresh])
-            pr_auc = auc(recall, precision)
             plt.figure()
-            plt.plot(recall, precision, label=f"Test dataset (AUC:{pr_auc:.3f})")
             plt.plot([1, 0], [0.5, 0.5], linestyle="--", label="No Skill")
+            for folder, y in perFolder.items():
+                precision, recall, _ = precision_recall_curve(y["targ"], y[thresh])
+                pr_auc = auc(recall, precision)
+                plt.plot(
+                    recall, precision, label=f"{folder} dataset (AUC:{pr_auc:.3f})"
+                )
             plt.ylabel("Precision")
             plt.xlabel("Recall")
             plt.legend()

@@ -17,11 +17,13 @@ import warnings
 
 from sklearn import preprocessing
 from torchvision import transforms
+import torch
 import pandas as pd
 
 import lymphoma_dataset_class as L
 import constant as C
-import train_test_fct as tt
+import train_fct as train
+import test_fct as test
 
 
 from IftimDevLib.IDL.pipelines.evaluation.classification import EarlyStopping
@@ -66,6 +68,15 @@ def parser_init():
         default=0.001,
         type=float,
         help="The learning rate for the model",
+        required=False,
+    )
+
+    parser.add_argument(
+        "-wd",
+        "--decay",
+        default=0.0,
+        type=float,
+        help="The weight decay for the model",
         required=False,
     )
 
@@ -121,7 +132,6 @@ if __name__ == "__main__":
     train_val_rows = df[df['folder'].str.startswith('train')]
     if "test" in df["folder"].values:
         dataset_df["test"] = df[df['folder'] == 'test']
-        print(f"test : {dataset_df["test"].groupby(["categorie"])["categorie"].count().to_dict()}")
 
     
     modelPaths = {}
@@ -145,6 +155,10 @@ if __name__ == "__main__":
                         transforms.ToTensor(),
                         transforms.Resize(size = C.IMG_SIZE, interpolation=transforms.InterpolationMode.BILINEAR),
                         transforms.CenterCrop(C.IMG_SIZE),
+                        transforms.RandomApply(torch.nn.ModuleList([
+                            transforms.RandomHorizontalFlip(p=0.5),
+                            transforms.RandomVerticalFlip(p=0.5),
+                            transforms.RandomRotation(degrees=45),]), p=1 if x == "train" else 0)
                     ]
                 ),
             )
@@ -158,21 +172,22 @@ if __name__ == "__main__":
             path=save_model_path,
         )
 
-        loaders = tt.loaders(
+        loaders = train.loaders(
             dataset=dataset, 
             batch_size=p.parse_args().batch_size, 
             workers=p.parse_args().workers)
         
-        results = tt.train(
+        results = train.train(
             train_dataloader=loaders["train"],
             val_dataloader=loaders["val"],
             learning_rate=p.parse_args().learning_rate,
+            decay=p.parse_args().decay,
             epochs=200,
             label_encoder=le,
             early_stopping=early_stopping,
             disable_tqdm = p.parse_args().disable_tqdm)
         
-        tt.saveLearnCurves(
+        train.saveLearnCurves(
             tLoss=results["train_loss"], 
             vLoss=results["val_loss"],
             tAcc=results["train_acc"], 
@@ -180,8 +195,15 @@ if __name__ == "__main__":
             save_path=save_model_path.split('.')[0])
 
     if "test" in dataset:
-        resTest = {}
+        print(f"test : {dataset_df["test"].groupby(["categorie"])["categorie"].count().to_dict()}")
+        foldersDf = []
         for folder, path in modelPaths.items():
             print("test val : ", folder)
-            resTest[folder] = tt.test(loaders["test"], path, le, p.parse_args().disable_tqdm)
-        tt.saveAUC(resTest, '_'.join(save_model_path.split('_')[0:-2]))
+            resDF = test.test(loaders["test"], path, le, p.parse_args().disable_tqdm)
+            foldersDf.append(resDF)
+            
+        foldArgAss = foldersDf
+        foldAssArg = foldersDf
+
+        patient_stats = test.assThenArg(foldAssArg, save_model_path.split('.')[0])
+        patient_stats = test.agrThenAss(foldArgAss, save_model_path.split('.')[0])

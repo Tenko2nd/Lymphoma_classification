@@ -1,8 +1,7 @@
 from time import perf_counter as timer
-from collections import defaultdict
 
-from sklearn.metrics import precision_recall_curve, auc
-from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.metrics import roc_auc_score
+import pandas as pd
 import sklearn.preprocessing
 from torch.utils.data import DataLoader
 from torchvision import models
@@ -34,7 +33,7 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
     return loaders
 
 
-def create_model(learning_rate: float = 0.0001):
+def create_model(learning_rate: float = 0.0001, decay: float = 0.0):
     # create model
     model = models.efficientnet_b4(
         weights=models.EfficientNet_B4_Weights.DEFAULT
@@ -44,7 +43,7 @@ def create_model(learning_rate: float = 0.0001):
         param.requires_grad = "fc" in name  # try all layers
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=decay)
     return criterion, optimizer, model
 
 
@@ -66,19 +65,18 @@ def train_step(
 
     # Setup train loss and train accuracy values
     tr_loss = 0
-    tr_preds = None
-    tr_labels = None
+    # Create an empty DataFrame
+    df = pd.DataFrame(columns=["predictions", "targets", "patients"])
 
-    for inputs, labels, _ in tqdm(
+    for inputs, labels, tabular in tqdm(
         train_dataloader,
         total=len(train_dataloader),
         disable=disable_tqdm,
     ):
+        patients = tabular["patient"]
+
         labels = torch.from_numpy(label_encoder.transform(labels))
-        if tr_labels is None:
-            tr_labels = labels.squeeze(-1)
-        else:
-            tr_labels = torch.cat((tr_labels, labels.squeeze(-1)), dim=0)
+
         images = inputs.to(device, dtype=torch.float)
         labels = labels.to(device, dtype=torch.float)
 
@@ -93,14 +91,23 @@ def train_step(
         loss.backward()
         optimizer.step()
 
-        if tr_preds is None:
-            tr_preds = preds
-        else:
-            tr_preds = torch.cat((tr_preds, preds), dim=0)
+        new_df = pd.DataFrame(
+            {
+                "predictions": preds.detach().numpy(),
+                "targets": labels.squeeze(-1).cpu().detach().numpy(),
+                "patients": patients,
+            }
+        )
+        # Append the new DataFrame to the main DataFrame
+        df = pd.concat([df, new_df])
+
+    df = df.groupby("patients")[["predictions", "targets"]].mean().reset_index()
 
     tr_score = roc_auc_score(
-        tr_labels.detach().numpy(), tr_preds.detach().numpy(), multi_class="ovo"
+        df["targets"].tolist(), df["predictions"].tolist(), multi_class="ovo"
     )
+
+    del df
 
     return tr_loss / len(train_dataloader), tr_score
 
@@ -121,19 +128,16 @@ def val_step(
     model.eval()
 
     val_loss = 0
-    val_preds = None
-    val_labels = None
+    # Create an empty DataFrame
+    df = pd.DataFrame(columns=["predictions", "targets", "patients"])
 
-    for inputs, labels, _ in tqdm(
+    for inputs, labels, tabular in tqdm(
         val_dataloader,
-        total=len(val_dataloader),
         disable=disable_tqdm,
     ):
+        patients = tabular["patient"]
+
         labels = torch.from_numpy(label_encoder.transform(labels))
-        if val_labels is None:
-            val_labels = labels.squeeze(-1)
-        else:
-            val_labels = torch.cat((val_labels, labels.squeeze(-1)), dim=0)
 
         images = inputs.to(device, dtype=torch.float)
         labels = labels.to(device, dtype=torch.float)
@@ -146,14 +150,25 @@ def val_step(
             preds = F.softmax(outputs, dim=1)[:, 1].cpu()
             val_loss += loss.item()
 
-            if val_preds is None:
-                val_preds = preds
-            else:
-                val_preds = torch.cat((val_preds, preds), dim=0)
-
-        val_score = roc_auc_score(
-            val_labels.detach().numpy(), val_preds.detach().numpy(), multi_class="ovo"
+        # Create a new DataFrame for the current iteration
+        new_df = pd.DataFrame(
+            {
+                "predictions": preds.detach().numpy(),
+                "targets": labels.squeeze(-1).cpu().detach().numpy(),
+                "patients": patients,
+            }
         )
+
+        # Append the new DataFrame to the main DataFrame
+        df = pd.concat([df, new_df])
+
+    df = df.groupby("patients")[["predictions", "targets"]].mean().reset_index()
+
+    val_score = roc_auc_score(
+        df["targets"].tolist(), df["predictions"].tolist(), multi_class="ovo"
+    )
+
+    del df
 
     return val_loss / len(val_dataloader), val_score
 
@@ -164,13 +179,14 @@ def train(
     epochs: int,
     label_encoder: sklearn.preprocessing.LabelEncoder,
     learning_rate: float,
+    decay: float,
     train_dataloader: DataLoader,
     val_dataloader: DataLoader,
 ):
     # Creating empty results dictionary
     results = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
 
-    criterion, optimizer, model = create_model(learning_rate)
+    criterion, optimizer, model = create_model(learning_rate, decay)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -274,110 +290,3 @@ def saveLearnCurves(tLoss, vLoss, tAcc, vAcc, save_path):
         axv.set_title(f"AUROC (max val: {max(vAcc):.4f})", y=-0.01)
         axv.legend(("train", "val"))
         plt.savefig(f"{save_path}_res.png")
-
-
-def test(loader, model_path, le, disable_tqdm):
-    """Test the performance of the model on unseen data from the dataset
-
-    Args:
-        testDS (torch.utils.data.Dataset): the test dataset containing unseen data
-        model_path (str): the path of the model to train
-        le (sklearn.preprocessing.LabelEncoder): the label encoder used for the classification of the dataset
-
-    Returns:
-        List: The lists of targets and predictions of the model
-    """
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    # Load the model
-    model = models.efficientnet_b4()
-    model.load_state_dict(
-        torch.load(model_path, weights_only=True, map_location=torch.device(device))
-    )
-    model.eval()
-    model = model.to(device)
-
-    # Initialize a defaultdict with a list as default value
-    patient_preds = defaultdict(list)
-    patient_targ = {}
-    with torch.inference_mode():
-        for images, target, tabular in tqdm(loader, disable=disable_tqdm):
-            patients = tabular["patient"]
-            images = images.float()
-
-            target = le.transform(target)
-
-            images = images.to(device, dtype=torch.float)
-
-            outputs = model(images)
-            preds = F.softmax(outputs, dim=1)[:, 1].cpu()
-            for patient, targ in zip(patients, target):
-                if patient not in patient_targ:
-                    patient_targ[patient] = targ
-
-            # Iterate over the patients and values
-            for patient, pred in zip(patients, preds):
-                # Append the value to the list of the corresponding patient
-                patient_preds[patient].append(pred)
-
-        patient_preds_med = {
-            patient: np.median(values) for patient, values in patient_preds.items()
-        }
-        patient_preds_moy = {
-            patient: np.mean(values) for patient, values in patient_preds.items()
-        }
-
-        patient_merged_dic = {}
-        for key in set(list(patient_preds_med.keys())):
-            patient_merged_dic[key] = {
-                "med": patient_preds_med.get(key, 0),
-                "moy": patient_preds_moy.get(key, 0),
-                "targ": patient_targ.get(key, 0),
-            }
-
-    return patient_merged_dic
-
-
-def saveAUC(resTest, save_path):
-    """Save the AUC scores for the model
-
-    Args:
-        y_targ (List): list of targets
-        y_pred (List): list of predictions of the model
-        save_path (str): path to save the images
-    """
-    perFolder = {}
-    for folder, patient_merged_dic in resTest.items():
-        y = {"med": [], "moy": [], "targ": []}
-        for _, value in patient_merged_dic.items():
-            y["med"].append(value["med"])
-            y["moy"].append(value["moy"])
-            y["targ"].append(value["targ"])
-        perFolder[folder] = y
-    with plt.style.context("ggplot"):
-        for thresh in ["med", "moy"]:
-            # ROC
-            plt.figure()
-            plt.plot([0, 1], [0, 1], linestyle="--", label="No Skill")
-            for folder, y in perFolder.items():
-                fpr, tpr, _ = roc_curve(y["targ"], y[thresh])
-                roc_auc = roc_auc_score(y["targ"], y[thresh])
-                plt.plot(fpr, tpr, label=f"{folder} dataset (AUC:{roc_auc:.3f})")
-            plt.ylabel("True Positive Rate")
-            plt.xlabel("False Positive Rate")
-            plt.legend()
-            plt.savefig(f"{save_path}_{thresh}_auc_roc.png")
-            # Precision Recall
-            plt.figure()
-            plt.plot([1, 0], [0.5, 0.5], linestyle="--", label="No Skill")
-            for folder, y in perFolder.items():
-                precision, recall, _ = precision_recall_curve(y["targ"], y[thresh])
-                pr_auc = auc(recall, precision)
-                plt.plot(
-                    recall, precision, label=f"{folder} dataset (AUC:{pr_auc:.3f})"
-                )
-            plt.ylabel("Precision")
-            plt.xlabel("Recall")
-            plt.legend()
-            plt.savefig(f"{save_path}_{thresh}_auc_pr.png")

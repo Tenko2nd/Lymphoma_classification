@@ -1,5 +1,4 @@
 import argparse
-from collections import defaultdict
 import pandas as pd
 from torchvision import transforms
 from tqdm import tqdm
@@ -14,6 +13,10 @@ import torch.nn.functional as F
 import os
 from torch.utils.data import DataLoader
 import numpy as np
+import glob
+
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import lymphoma_dataset_class as L
 import constant as C
@@ -27,7 +30,7 @@ def parser_init():
 
     parser.add_argument(
         "-path",
-        "--model_path",
+        "--model_root_path",
         help="The path of the model",
         required=True,
     )
@@ -53,97 +56,92 @@ def test(loader, model_path, le):
         List: The lists of targets and predictions of the model
     """
 
-    
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Load the model
     model = models.efficientnet_b4()
-    model.load_state_dict(torch.load(model_path, weights_only=True, map_location=torch.device(device)))
+    model.load_state_dict(
+        torch.load(model_path, weights_only=True, map_location=torch.device(device))
+    )
     model.eval()
     model = model.to(device)
 
-    # Initialize a defaultdict with a list as default value
-    patient_preds = defaultdict(list)
-    patient_targ = {}
-    with torch.inference_mode():
-        for images, target, tabular in tqdm(loader):
-            patients = tabular["patient"]
-            images = images.float()
+    # Create an empty DataFrame
+    df = pd.DataFrame(columns=['predictions', 'targets', 'patients', 'references'])
 
-            target = le.transform(target)
+    for inputs, labels, tabular in tqdm(
+        loader
+    ):
+        patients = tabular["patient"]
+        references = tabular['reference']
 
-            images = images.to(device, dtype=torch.float)
+        labels = torch.from_numpy(le.transform(labels))
 
+        images = inputs.to(device, dtype=torch.float)
+        labels = labels.to(device, dtype=torch.float)
+
+        # Turning on inference context manager
+        with torch.inference_mode():
+            # Forward pass + calculate loss
             outputs = model(images)
             preds = F.softmax(outputs, dim=1)[:, 1].cpu()
-            for patient, targ in zip(patients, target):
-                if patient not in patient_targ:
-                    patient_targ[patient] = targ
 
-            # Iterate over the patients and values
-            for patient, pred in zip(patients, preds):
-                # Append the value to the list of the corresponding patient
-                patient_preds[patient].append(pred)
+                
+        # Create a new DataFrame for the current iteration
+        new_df = pd.DataFrame({'predictions': preds.detach().numpy(), 'targets': labels.squeeze(-1).cpu().detach().numpy(), 'patients': patients, "references" : references})
 
-        patient_preds_med = {
-            patient: np.median(values) for patient, values in patient_preds.items()
-        }
-        patient_preds_moy = {
-            patient: np.mean(values) for patient, values in patient_preds.items()
-        }
+        # Append the new DataFrame to the main DataFrame
+        df = pd.concat([df, new_df])
 
-        patient_merged_dic = {}
-        for key in set(list(patient_preds_med.keys())):
-            patient_merged_dic[key] = {
-                "med": patient_preds_med.get(key, 0),
-                "moy": patient_preds_moy.get(key, 0),
-                "targ": patient_targ.get(key, 0),
-            }
+    return  df
 
-    return patient_merged_dic
+def agrThenAss(foldersDf):
+    for i, df in enumerate(foldersDf):
+        foldersDf[i] = df.drop(columns=["references"])
+        foldersDf[i] = df.groupby('patients').agg({'predictions': ['mean','median'], 'targets':'mean'}).reset_index()
+        foldersDf[i].columns = ['patients', 'pred_mean', 'pred_median', 'targets']
+    df_concat = pd.concat(foldersDf)
+    patient_stats = df_concat.groupby('patients').agg({'pred_mean':['mean','median'], 'pred_median':['mean','median'], 'targets':'mean'}).reset_index()
+    patient_stats.columns = ['patients', 'agr_mean_ass_mean','agr_mean_ass_med','agr_med_ass_mean','agr_med_ass_med','targets']
+    return patient_stats
 
-def saveAUC(resTest, save_path):
-    """Save the AUC scores for the model
+def assThenArg(foldersDf):
+    df_concat = pd.concat(foldersDf)
+    patient_stats = df_concat.groupby('references').agg({'predictions': ['mean','median'], 'targets':'median', 'patients':'first'}).reset_index()
+    patient_stats.columns = ['references', 'pred_mean', 'pred_median', 'targets', 'patients']
+    patient_stats = patient_stats.drop(columns=["references"])
+    patient_stats = patient_stats.groupby('patients').agg({'pred_mean':['mean','median'], 'pred_median':['mean','median'], 'targets':'mean'}).reset_index()
+    patient_stats.columns = ['patients', 'ass_mean_agr_mean','ass_mean_agr_med','ass_med_agr_mean','ass_med_agr_med','targets']
+    return patient_stats
 
-    Args:
-        y_targ (List): list of targets
-        y_pred (List): list of predictions of the model
-        save_path (str): path to save the images
-    """
-    perFolder = {}
-    for folder, patient_merged_dic in resTest.items():
-        y = {"med": [], "moy": [], "targ": []}
-        for _, value in patient_merged_dic.items():
-            y["med"].append(value["med"])
-            y["moy"].append(value["moy"])
-            y["targ"].append(value["targ"])
-        perFolder[folder] = y
+def saveResult(patient_stats : pd.DataFrame, save_path):
+    targets = patient_stats['targets'].tolist()
+    patient_pred = patient_stats.drop(columns=['patients', 'targets'])
     with plt.style.context("ggplot"):
-        for thresh in ["med", "moy"]:
-            # ROC
-            plt.figure()
-            plt.plot([0, 1], [0, 1], linestyle="--", label="No Skill")
-            for folder, y in perFolder.items():
-                fpr, tpr, _ = roc_curve(y["targ"], y[thresh])
-                roc_auc = roc_auc_score(y["targ"], y[thresh])
-                plt.plot(fpr, tpr, label=f"{folder} dataset (AUC:{roc_auc:.3f})")
-            plt.ylabel("True Positive Rate")
-            plt.xlabel("False Positive Rate")
-            plt.legend()
-            plt.savefig(f"{save_path}_{thresh}_auc_roc.png")
-            # Precision Recall
-            plt.figure()
-            plt.plot([1, 0], [0.5, 0.5], linestyle="--", label="No Skill")
-            for folder, y in perFolder.items():
-                precision, recall, _ = precision_recall_curve(y["targ"], y[thresh])
-                pr_auc = auc(recall, precision)
-                plt.plot(
-                    recall, precision, label=f"{folder} dataset (AUC:{pr_auc:.3f})"
-                )
-            plt.ylabel("Precision")
-            plt.xlabel("Recall")
-            plt.legend()
-            plt.savefig(f"{save_path}_{thresh}_auc_pr.png")
+        #ROC
+        plt.figure()
+        plt.plot([0, 1], [0, 1], color="#ccca68", linestyle="--", label="No Skill")
+        for col, values in patient_pred.items():
+            fpr, tpr, _ = roc_curve(targets, values.tolist())
+            roc_auc = roc_auc_score(targets, values.tolist())
+            plt.plot(fpr, tpr, label=f"{col} (AUC:{roc_auc:.3f})")
+        plt.ylabel("True Positive Rate")
+        plt.xlabel("False Positive Rate")
+        plt.legend()
+        plt.savefig(f"{save_path}_auc_roc.png")
+        # Precision Recall
+        plt.figure()
+        plt.plot([1, 0], [0.5, 0.5], color="#ccca68", linestyle="--", label="No Skill")
+        for col, values in patient_pred.items():
+            precision, recall, _ = precision_recall_curve(targets, values.tolist())
+            pr_auc = auc(recall, precision)
+            plt.plot(
+                recall, precision, label=f"{col} (AUC:{pr_auc:.3f})"
+            )
+        plt.ylabel("Precision")
+        plt.xlabel("Recall")
+        plt.legend()
+        plt.savefig(f"{save_path}_auc_pr.png")
 
 
 if __name__ == "__main__":
@@ -170,14 +168,30 @@ if __name__ == "__main__":
         )
     
     loader =  DataLoader(
-            dataset, batch_size=16, shuffle=False, num_workers=0
+            dataset, batch_size=16, shuffle=False, num_workers=15
         )
     
     le_path = f"{os.getcwd()}/Lymphoma_labelEncoder.pkl"
     with open(le_path, "rb") as f:
         le = preprocessing.LabelEncoder()
-        le.classes_ = pickle.load(f)    
-    model_path = parser.parse_args().model_path
+        le.classes_ = pickle.load(f)   
 
-    patient_merged_dic = test(loader, model_path, le)
-    saveAUC(patient_merged_dic, model_path.split('.')[0])
+    modelRootPath = parser.parse_args().model_root_path
+
+    modelPaths = glob.glob(f"{modelRootPath}/**/*.pt", recursive=True)
+
+    foldersDf = []
+    for folder, path in enumerate(modelPaths):
+        print("test val : ", folder)
+        resDF = test(loader, path, le)
+        foldersDf.append(resDF)
+
+    foldArgAss = foldersDf
+    foldAssArg = foldersDf
+
+    
+
+    patient_stats = assThenArg(foldAssArg)
+    saveResult(patient_stats, f"{modelRootPath}/ass_agr")
+    patient_stats = agrThenAss(foldArgAss)
+    saveResult(patient_stats, f"{modelRootPath}/agr_ass")

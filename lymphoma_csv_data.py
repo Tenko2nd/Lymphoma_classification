@@ -24,6 +24,7 @@ import argparse
 import csv
 import glob
 import os
+import pathlib
 import pandas as pd
 from unidecode import unidecode
 
@@ -80,7 +81,13 @@ with open(f"{DS_FOLDER}data.csv", "w", newline="") as csvfile:
     )
     # Write first line as legends
     dataWriter.writerow(
-        ["img_path", "categorie", "type", "patient"]  # + [unidecode(x) for x in tabCol]
+        [
+            "img_path",
+            "categorie",
+            "type",
+            "patient",
+            "reference",
+        ]  # + [unidecode(x) for x in tabCol]
     )
     for c in ["LCM", "LZM"]:
         # df = lzmDf if (c == "LZM") else lcmDf
@@ -89,9 +96,10 @@ with open(f"{DS_FOLDER}data.csv", "w", newline="") as csvfile:
             # Get the parent directory of the file
             parent_dir = os.path.dirname(path)
             patient = os.path.basename(parent_dir)
+            reference = pathlib.Path(path).stem
             # # Normalize, remove accents
             # tabular = [
             #     unidecode(x) if type(x) == str else x
             #     for x in df.loc[df["ID"] == patient, tabCol].values.flatten().tolist()
             # ]
-            dataWriter.writerow([path, c, typ, patient])  # + tabular
+            dataWriter.writerow([path, c, typ, patient, reference])  # + tabular

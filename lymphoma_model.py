@@ -158,7 +158,7 @@ if __name__ == "__main__":
                         transforms.RandomApply(torch.nn.ModuleList([
                             transforms.RandomHorizontalFlip(p=0.5),
                             transforms.RandomVerticalFlip(p=0.5),
-                            transforms.RandomRotation(degrees=45),]), p=1 if x == "train" else 0)
+                            transforms.RandomRotation(degrees=45),]), p=0 if x == "train" else 0)
                     ]
                 ),
             )
@@ -205,5 +205,5 @@ if __name__ == "__main__":
         foldArgAss = foldersDf
         foldAssArg = foldersDf
 
-        patient_stats = test.assThenArg(foldAssArg, save_model_path.split('.')[0])
-        patient_stats = test.agrThenAss(foldArgAss, save_model_path.split('.')[0])
+        patient_stats = test.assThenArg(foldAssArg, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}")
+        patient_stats = test.agrThenAss(foldArgAss, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}")

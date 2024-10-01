@@ -127,83 +127,92 @@ if __name__ == "__main__":
     dataset_path = p.parse_args().dataset_path
     df = pd.read_csv(dataset_path)
 
-    dataset_df = {}
-    # print repartition LCM / LZM for each folder
-    train_val_rows = df[df['folder'].str.startswith('train')]
-    if "test" in df["folder"].values:
-        dataset_df["test"] = df[df['folder'] == 'test']
+    for test_fold, _ in df.groupby('folder'):
 
-    
-    modelPaths = {}
+        dataset_df = {}
+        dataset_df["test"] = df[df['folder'] == test_fold]
+        train_val_df= df[df['folder'] != test_fold]
 
-    for folder, _ in train_val_rows.groupby('folder'):
-
-        save_model_path = f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{folder}.pt"
-        modelPaths[folder] = save_model_path
-
-        print(f"Val = {folder}")
-        dataset_df["train"] = train_val_rows[train_val_rows['folder'] != folder]
-        dataset_df["val"] = train_val_rows[train_val_rows['folder'] == folder]
-        print(f"train : {dataset_df["train"].groupby(["categorie"])["categorie"].count().to_dict()}")
-        print(f"validation : {dataset_df["val"].groupby(["categorie"])["categorie"].count().to_dict()}")
+        print(f"test = {test_fold}")
         
-        dataset = {
-            x: L.LymphomaDataset(
-                pd_file=dataset_df[x].reset_index(drop=True),
-                transform=transforms.Compose(
-                    [
-                        transforms.ToTensor(),
-                        transforms.Resize(size = C.IMG_SIZE, interpolation=transforms.InterpolationMode.BILINEAR),
-                        transforms.CenterCrop(C.IMG_SIZE),
-                        transforms.RandomApply(torch.nn.ModuleList([
-                            transforms.RandomHorizontalFlip(p=0.5),
-                            transforms.RandomVerticalFlip(p=0.5),
-                            transforms.RandomRotation(degrees=45),]), p=0 if x == "train" else 0)
-                    ]
-                ),
-            )
-            for x in ["train", "val"] + (["test"] if "test" in dataset_df.keys() else [])
-        }
-        lenDataset = {x: len(dataset[x]) for x in dataset.keys()}
+        os.mkdir(f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}")
 
-        early_stopping = EarlyStopping(
-            patience=p.parse_args().early_stop,
-            verbose=True,
-            path=save_model_path,
-        )
+        modelPaths = {}
 
-        loaders = train.loaders(
-            dataset=dataset, 
-            batch_size=p.parse_args().batch_size, 
-            workers=p.parse_args().workers)
-        
-        results = train.train(
-            train_dataloader=loaders["train"],
-            val_dataloader=loaders["val"],
-            learning_rate=p.parse_args().learning_rate,
-            decay=p.parse_args().decay,
-            epochs=200,
-            label_encoder=le,
-            early_stopping=early_stopping,
-            disable_tqdm = p.parse_args().disable_tqdm)
-        
-        train.saveLearnCurves(
-            tLoss=results["train_loss"], 
-            vLoss=results["val_loss"],
-            tAcc=results["train_acc"], 
-            vAcc=results["val_acc"], 
-            save_path=save_model_path.split('.')[0])
+        for folder, _ in train_val_df.groupby('folder'):
 
-    if "test" in dataset:
-        print(f"test : {dataset_df["test"].groupby(["categorie"])["categorie"].count().to_dict()}")
-        foldersDf = []
-        for folder, path in modelPaths.items():
-            print("test val : ", folder)
-            resDF = test.test(loaders["test"], path, le, p.parse_args().disable_tqdm)
-            foldersDf.append(resDF)
+            save_model_path = f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/{name}_{date}_{folder}.pt"
+            modelPaths[folder] = save_model_path
+
+            print(f"Val = {folder}")
+            dataset_df["train"] = train_val_df[train_val_df['folder'] != folder]
+            dataset_df["val"] = train_val_df[train_val_df['folder'] == folder]
+            print(f"train : {dataset_df["train"].groupby(["categorie"])["categorie"].count().to_dict()}")
+            print(f"validation : {dataset_df["val"].groupby(["categorie"])["categorie"].count().to_dict()}")
             
-        foldArgAss = foldersDf
-        foldAssArg = foldersDf
+            dataset = {
+                x: L.LymphomaDataset(
+                    pd_file=dataset_df[x].reset_index(drop=True),
+                    transform=transforms.Compose(
+                        [
+                            transforms.ToTensor(),
+                            transforms.Resize(size = C.IMG_SIZE, interpolation=transforms.InterpolationMode.BILINEAR),
+                            transforms.CenterCrop(C.IMG_SIZE),
+                            transforms.RandomApply(torch.nn.ModuleList([
+                                transforms.RandomHorizontalFlip(p=0.5),
+                                transforms.RandomVerticalFlip(p=0.5),
+                                transforms.RandomRotation(degrees=45),]), p=0 if x == "train" else 0)
+                        ]
+                    ),
+                )
+                for x in ["train", "val"] + (["test"] if "test" in dataset_df.keys() else [])
+            }
+            lenDataset = {x: len(dataset[x]) for x in dataset.keys()}
 
-        patient_stats = test.assThenArg(foldAssArg, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}")
-        patient_stats = test.agrThenAss(foldArgAss, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}")
+            early_stopping = EarlyStopping(
+                patience=p.parse_args().early_stop,
+                verbose=True,
+                path=save_model_path,
+            )
+
+            loaders = train.loaders(
+                dataset=dataset, 
+                batch_size=p.parse_args().batch_size, 
+                workers=p.parse_args().workers)
+            
+            results = train.train(
+                train_dataloader=loaders["train"],
+                val_dataloader=loaders["val"],
+                learning_rate=p.parse_args().learning_rate,
+                decay=p.parse_args().decay,
+                epochs=200,
+                label_encoder=le,
+                early_stopping=early_stopping,
+                disable_tqdm = p.parse_args().disable_tqdm)
+            
+            train.saveLearnCurves(
+                tLoss=results["train_loss"], 
+                vLoss=results["val_loss"],
+                tAcc=results["train_acc"], 
+                vAcc=results["val_acc"], 
+                save_path=save_model_path.split('.')[0])
+
+        if "test" in dataset:
+            print(f"test : {dataset_df["test"].groupby(["categorie"])["categorie"].count().to_dict()}")
+            foldersDf = []
+            for folder, path in modelPaths.items():
+                print("test val : ", folder)
+                resDF = test.test(loaders["test"], path, le, p.parse_args().disable_tqdm)
+                foldersDf.append(resDF)
+                
+            foldArgAss = foldersDf
+            foldAssArg = foldersDf
+
+            best_method1 = test.assThenArg(foldAssArg, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/{name}_{date}")
+            best_method2 = test.agrThenAss(foldArgAss, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/{name}_{date}")
+            if best_method1["score"] < best_method2["score"]:
+                best_method = best_method1
+            else:
+                best_method = best_method2
+
+            test.confusion_matrix(best_method, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/{name}_{date}", le)

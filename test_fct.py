@@ -4,6 +4,8 @@ from sklearn.metrics import roc_curve, roc_auc_score
 import torch
 from tqdm import tqdm
 from torchvision import models
+import numpy as np
+from sklearn import metrics
 import torch.nn.functional as F
 
 import warnings
@@ -106,10 +108,9 @@ def agrThenAss(foldersDf, save_path):
         "agr_med_ass_med",
         "targets",
     ]
-
-    saveResult(patient_stats, f"{save_path}_agr_ass")
-
-    return patient_stats
+    
+    best = saveResult(patient_stats, f"{save_path}_agr_ass")
+    return best
 
 
 def assThenArg(foldersDf, save_path):
@@ -164,12 +165,11 @@ def assThenArg(foldersDf, save_path):
         "targets",
     ]
 
-    saveResult(patient_stats, f"{save_path}_ass_agr")
-
-    return patient_stats
-
+    best = saveResult(patient_stats, f"{save_path}_ass_agr")
+    return best
 
 def saveResult(patient_stats: pd.DataFrame, save_path):
+    best = {"score" : 0}
     targets = patient_stats["targets"].tolist()
     patient_pred = patient_stats.drop(columns=["patients", "targets"])
     with plt.style.context("ggplot"):
@@ -177,10 +177,22 @@ def saveResult(patient_stats: pd.DataFrame, save_path):
         plt.figure()
         plt.plot([0, 1], [0, 1], color="#ccca68", linestyle="--", label="No Skill")
         for col, values in patient_pred.items():
-            fpr, tpr, _ = roc_curve(targets, values.tolist())
+            fpr, tpr, thresh = roc_curve(targets, values.tolist())
             roc_auc = roc_auc_score(targets, values.tolist())
             plt.plot(fpr, tpr, label=f"{col} (AUC:{roc_auc:.3f})")
+            if best["score"] < roc_auc:
+                optimal_thresh = sorted(list(zip(np.abs(tpr - fpr), thresh)), key=lambda i: i[0], reverse=True)[0][1]
+                roc_predictions = [1 if i >= optimal_thresh else 0 for i in values.tolist()]
+                best = {"score" : roc_auc, "name" :col, "threshold": optimal_thresh, "targets": targets, "predictions": roc_predictions}
         plt.ylabel("True Positive Rate")
         plt.xlabel("False Positive Rate")
         plt.legend()
         plt.savefig(f"{save_path}_auroc.png")
+    return best
+
+def confusion_matrix(best_method, save_path, le):
+    confusion_matrix = metrics.confusion_matrix(best_method["targets"], best_method["predictions"])
+    cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix, display_labels = le.inverse_transform([0, 1]))
+    cm_display.plot()
+    plt.suptitle(f"method : {best_method["name"]}, threshold: {best_method["threshold"]}")
+    plt.savefig(f"{save_path}_confusion_matrix.png")

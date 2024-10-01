@@ -7,11 +7,11 @@ from torchvision import models
 import matplotlib.pyplot as plt
 from sklearn import preprocessing
 from sklearn.metrics import roc_curve, roc_auc_score
-from sklearn.metrics import precision_recall_curve, auc
 import pickle
 import torch.nn.functional as F
 import os
 from torch.utils.data import DataLoader
+from sklearn import metrics
 import numpy as np
 import glob
 
@@ -95,26 +95,109 @@ def test(loader, model_path, le):
 
     return  df
 
-def agrThenAss(foldersDf):
+def agrThenAss(foldersDf, save_path):
+    """Agregation then assembling
+
+    Args:
+        foldersDf (List): a list of all the pandas dataframes resulting from the test of the model (the list is for the K models created in the Kfold_CV)
+
+    Returns:
+        pandas.DataFrame: contains the predictions (based on mean or median threshold) of a patient for if it is LCM or LZM along with their target
+    """
+    # Agregation
     for i, df in enumerate(foldersDf):
         foldersDf[i] = df.drop(columns=["references"])
-        foldersDf[i] = df.groupby('patients').agg({'predictions': ['mean','median'], 'targets':'mean'}).reset_index()
-        foldersDf[i].columns = ['patients', 'pred_mean', 'pred_median', 'targets']
-    df_concat = pd.concat(foldersDf)
-    patient_stats = df_concat.groupby('patients').agg({'pred_mean':['mean','median'], 'pred_median':['mean','median'], 'targets':'mean'}).reset_index()
-    patient_stats.columns = ['patients', 'agr_mean_ass_mean','agr_mean_ass_med','agr_med_ass_mean','agr_med_ass_med','targets']
-    return patient_stats
+        foldersDf[i] = (
+            df.groupby("patients")
+            .agg({"predictions": ["mean", "median"], "targets": "mean"})
+            .reset_index()
+        )
+        foldersDf[i].columns = ["patients", "pred_mean", "pred_median", "targets"]
 
-def assThenArg(foldersDf):
+    # Assembling
     df_concat = pd.concat(foldersDf)
-    patient_stats = df_concat.groupby('references').agg({'predictions': ['mean','median'], 'targets':'median', 'patients':'first'}).reset_index()
-    patient_stats.columns = ['references', 'pred_mean', 'pred_median', 'targets', 'patients']
+    patient_stats = (
+        df_concat.groupby("patients")
+        .agg(
+            {
+                "pred_mean": ["mean", "median"],
+                "pred_median": ["mean", "median"],
+                "targets": "mean",
+            }
+        )
+        .reset_index()
+    )
+    patient_stats.columns = [
+        "patients",
+        "agr_mean_ass_mean",
+        "agr_mean_ass_med",
+        "agr_med_ass_mean",
+        "agr_med_ass_med",
+        "targets",
+    ]
+
+    best = saveResult(patient_stats, f"{save_path}")
+    return best
+
+
+def assThenArg(foldersDf, save_path):
+    """Assembling then agregation
+
+    Args:
+        foldersDf (List): a list of all the pandas dataframes resulting from the test of the model (the list is for the K models created in the Kfold_CV)
+
+    Returns:
+        pandas.DataFrame: contains the predictions (based on mean or median threshold) of a patient for if it is LCM or LZM along with their target
+    """
+    # Assembling
+    df_concat = pd.concat(foldersDf)
+    patient_stats = (
+        df_concat.groupby("references")
+        .agg(
+            {
+                "predictions": ["mean", "median"],
+                "targets": "median",
+                "patients": "first",
+            }
+        )
+        .reset_index()
+    )
+    patient_stats.columns = [
+        "references",
+        "pred_mean",
+        "pred_median",
+        "targets",
+        "patients",
+    ]
+
+    # Agregation
     patient_stats = patient_stats.drop(columns=["references"])
-    patient_stats = patient_stats.groupby('patients').agg({'pred_mean':['mean','median'], 'pred_median':['mean','median'], 'targets':'mean'}).reset_index()
-    patient_stats.columns = ['patients', 'ass_mean_agr_mean','ass_mean_agr_med','ass_med_agr_mean','ass_med_agr_med','targets']
-    return patient_stats
+    patient_stats = (
+        patient_stats.groupby("patients")
+        .agg(
+            {
+                "pred_mean": ["mean", "median"],
+                "pred_median": ["mean", "median"],
+                "targets": "mean",
+            }
+        )
+        .reset_index()
+    )
+    patient_stats.columns = [
+        "patients",
+        "ass_mean_agr_mean",
+        "ass_mean_agr_med",
+        "ass_med_agr_mean",
+        "ass_med_agr_med",
+        "targets",
+    ]
+
+    best = saveResult(patient_stats, f"{save_path}")
+
+    return best
 
 def saveResult(patient_stats : pd.DataFrame, save_path):
+    best = {"score" : 0}
     targets = patient_stats['targets'].tolist()
     patient_pred = patient_stats.drop(columns=['patients', 'targets'])
     with plt.style.context("ggplot"):
@@ -122,26 +205,25 @@ def saveResult(patient_stats : pd.DataFrame, save_path):
         plt.figure()
         plt.plot([0, 1], [0, 1], color="#ccca68", linestyle="--", label="No Skill")
         for col, values in patient_pred.items():
-            fpr, tpr, _ = roc_curve(targets, values.tolist())
+            fpr, tpr, thresh = roc_curve(targets, values.tolist())
             roc_auc = roc_auc_score(targets, values.tolist())
             plt.plot(fpr, tpr, label=f"{col} (AUC:{roc_auc:.3f})")
+            if best["score"] < roc_auc:
+                optimal_thresh = sorted(list(zip(np.abs(tpr - fpr), thresh)), key=lambda i: i[0], reverse=True)[0][1]
+                roc_predictions = [1 if i >= optimal_thresh else 0 for i in values.tolist()]
+                best = {"score" : roc_auc, "name" :col, "threshold": optimal_thresh, "targets": targets, "predictions": roc_predictions}
         plt.ylabel("True Positive Rate")
         plt.xlabel("False Positive Rate")
         plt.legend()
-        plt.savefig(f"{save_path}_auc_roc.png")
-        # Precision Recall
-        plt.figure()
-        plt.plot([1, 0], [0.5, 0.5], color="#ccca68", linestyle="--", label="No Skill")
-        for col, values in patient_pred.items():
-            precision, recall, _ = precision_recall_curve(targets, values.tolist())
-            pr_auc = auc(recall, precision)
-            plt.plot(
-                recall, precision, label=f"{col} (AUC:{pr_auc:.3f})"
-            )
-        plt.ylabel("Precision")
-        plt.xlabel("Recall")
-        plt.legend()
-        plt.savefig(f"{save_path}_auc_pr.png")
+        plt.savefig(f"{save_path}_auroc.png")
+    return best
+
+def confusion_matrix(best_method, save_path, le):
+    confusion_matrix = metrics.confusion_matrix(best_method["targets"], best_method["predictions"])
+    cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix, display_labels = le.inverse_transform([0, 1]))
+    cm_display.plot()
+    plt.suptitle(f"method : {best_method["name"]}")
+    plt.savefig(save_path)
 
 
 if __name__ == "__main__":
@@ -189,9 +271,12 @@ if __name__ == "__main__":
     foldArgAss = foldersDf
     foldAssArg = foldersDf
 
-    
+    best_method1 = assThenArg(foldAssArg, f"{modelRootPath}/ass_agr")
+    best_method2 = agrThenAss(foldArgAss, f"{modelRootPath}/agr_ass")
+    if best_method1["score"] < best_method2["score"]:
+        best_method = best_method1
+    else:
+        best_method = best_method2
 
-    patient_stats = assThenArg(foldAssArg)
-    saveResult(patient_stats, f"{modelRootPath}/ass_agr")
-    patient_stats = agrThenAss(foldArgAss)
-    saveResult(patient_stats, f"{modelRootPath}/agr_ass")
+    confusion_matrix(best_method, f"{modelRootPath}/confusion_matrix.png", le)
+

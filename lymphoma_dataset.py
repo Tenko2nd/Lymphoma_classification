@@ -31,10 +31,10 @@ def df_train_val_test(full_pd_df, st, no_mult,fract_sample, extern_val):
     # if internal validation 100% train-val
     if not extern_val:
         full_pd_df = full_pd_df.sample(frac=fract_sample)
-        full_pd_df["folder"] = np.where(full_pd_df.index % 5 == 0, "train_1",
-                                np.where(full_pd_df.index % 5 == 1, "train_2",
-                                np.where(full_pd_df.index % 5 == 2, "train_3",
-                                np.where(full_pd_df.index % 5 == 3, "train_4", "train_5"))))
+        full_pd_df["folder"] = np.where(full_pd_df.index % 5 == 0, "folder_1",
+                                np.where(full_pd_df.index % 5 == 1, "folder_2",
+                                np.where(full_pd_df.index % 5 == 2, "folder_3",
+                                np.where(full_pd_df.index % 5 == 3, "folder_4", "folder_5"))))
 
     # if external validation 80% train-val / 20% test
     else:
@@ -45,8 +45,8 @@ def df_train_val_test(full_pd_df, st, no_mult,fract_sample, extern_val):
             replace=False,
         )
         split_pat = np.array_split(sample_pat, 5)
-        # Mapping patient in 5 folders train_(1,2,3,4)/test
-        patient_folder_map = {p: f"train_{i+1}" if i < len(split_pat) - 1 else "test" for i, folder in enumerate(split_pat) for p in folder}
+        # Mapping patient in 5 folders folder_(1,2,3,4,5)
+        patient_folder_map = {p: f"folder_{i+1}" for i, folder in enumerate(split_pat) for p in folder}
         full_pd_df["folder"] = full_pd_df["patient"].map(patient_folder_map)
 
     # drop data with no folder attributed and save in csv file

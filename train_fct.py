@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
+from transformers import AutoModel
 
 
 from IftimDevLib.IDL.pipelines.evaluation.classification import EarlyStopping
@@ -35,9 +36,13 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
 
 def create_model(learning_rate: float = 0.0001, decay: float = 0.0):
     # create model
-    model = models.efficientnet_b4(
+    model = AutoModel.from_pretrained("owkin/phikon-v2")
+
+    """
+    models.efficientnet_b4(
         weights=models.EfficientNet_B4_Weights.DEFAULT
     )  # change weights
+    """
     # Freeze all layers except the final classification layer
     for name, param in model.named_parameters():
         param.requires_grad = "fc" in name  # try all layers
@@ -84,8 +89,11 @@ def train_step(
 
         outputs = model(images)
 
-        loss = criterion(outputs, labels.squeeze(-1).to(device, dtype=torch.long))
-        preds = F.softmax(outputs, dim=1)[:, 1].cpu()
+        loss = criterion(
+            outputs.last_hidden_state[:, 0, :],
+            labels.squeeze(-1).to(device, dtype=torch.long),
+        )
+        preds = F.softmax(outputs.last_hidden_state[:, 0, :], dim=1)[:, 1].cpu()
         tr_loss += loss.item()
 
         loss.backward()
@@ -146,8 +154,11 @@ def val_step(
         with torch.inference_mode():
             # Forward pass + calculate loss
             outputs = model(images)
-            loss = criterion(outputs, labels.squeeze(-1).to(device, dtype=torch.long))
-            preds = F.softmax(outputs, dim=1)[:, 1].cpu()
+            loss = criterion(
+                outputs.last_hidden_state[:, 0, :],
+                labels.squeeze(-1).to(device, dtype=torch.long),
+            )
+            preds = F.softmax(outputs.last_hidden_state[:, 0, :], dim=1)[:, 1].cpu()
             val_loss += loss.item()
 
         # Create a new DataFrame for the current iteration

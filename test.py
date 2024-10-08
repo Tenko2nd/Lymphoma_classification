@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from sklearn import metrics
 import numpy as np
 import glob
+from scipy.stats import mannwhitneyu
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -215,16 +216,21 @@ def saveResult(patient_stats : pd.DataFrame, save_path):
         plt.ylabel("True Positive Rate")
         plt.xlabel("False Positive Rate")
         plt.legend()
-        plt.savefig(f"{save_path}_auroc.png")
+        # plt.savefig(f"{save_path}_auroc.png")
     return best
 
 def confusion_matrix(best_method, save_path, le):
     confusion_matrix = metrics.confusion_matrix(best_method["targets"], best_method["predictions"])
     cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix, display_labels = le.inverse_transform([0, 1]))
     cm_display.plot()
-    plt.suptitle(f"method : {best_method["name"]}")
+    plt.suptitle(f"p_value: {best_method["p_value"]:.5f}, threshold: {best_method["threshold"]:.4f}")
     plt.savefig(save_path)
 
+def p_value(preds, targets): 
+    x = [p for p, t in zip(preds, targets) if t == 0]     
+    y = [p for p, t in zip(preds, targets) if t == 1]
+    _, p = mannwhitneyu(y, x)    
+    return p
 
 if __name__ == "__main__":
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'  # helps prevent out-of-memory errors and makes more efficient use of the available GPU memory
@@ -232,8 +238,11 @@ if __name__ == "__main__":
 
     dataset_path = parser.parse_args().dataset_path
     df = pd.read_csv(dataset_path)
+    
+    modelRootPath = parser.parse_args().model_root_path
 
-    test_df  = df[df['folder'] == 'test']
+    num = modelRootPath.split('_')[-1]
+    test_df  = df[df['folder'] == f'folder_{num}']
     print(f"test : {test_df.groupby(["categorie"])["categorie"].count().to_dict()}")
     
 
@@ -258,7 +267,7 @@ if __name__ == "__main__":
         le = preprocessing.LabelEncoder()
         le.classes_ = pickle.load(f)   
 
-    modelRootPath = parser.parse_args().model_root_path
+    
 
     modelPaths = glob.glob(f"{modelRootPath}/**/*.pt", recursive=True)
 
@@ -278,5 +287,6 @@ if __name__ == "__main__":
     else:
         best_method = best_method2
 
+    best_method['p_value'] = p_value(best_method['targets'], best_method['predictions'])
     confusion_matrix(best_method, f"{modelRootPath}/confusion_matrix.png", le)
 

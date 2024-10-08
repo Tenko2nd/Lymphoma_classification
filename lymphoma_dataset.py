@@ -44,7 +44,7 @@ def df_train_val_test(full_pd_df, st, no_mult,fract_sample, extern_val):
             int(full_pd_df["patient"].nunique() * fract_sample),
             replace=False,
         )
-        split_pat = np.array_split(sample_pat, 5)
+        split_pat = np.array_split(sample_pat, 10)
         # Mapping patient in 5 folders folder_(1,2,3,4,5)
         patient_folder_map = {p: f"folder_{i+1}" for i, folder in enumerate(split_pat) for p in folder}
         full_pd_df["folder"] = full_pd_df["patient"].map(patient_folder_map)

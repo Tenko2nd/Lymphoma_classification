@@ -208,11 +208,8 @@ if __name__ == "__main__":
             foldArgAss = foldersDf
             foldAssArg = foldersDf
 
-            best_method1 = test.assThenArg(foldAssArg, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/{name}_{date}")
-            best_method2 = test.agrThenAss(foldArgAss, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/{name}_{date}")
-            if best_method1["score"] < best_method2["score"]:
-                best_method = best_method1
-            else:
-                best_method = best_method2
 
-            test.confusion_matrix(best_method, f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/{name}_{date}", le)
+            save = f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/out_{name}_{date}_{test_fold}"
+            matrix_info = test.assemble_n_aggregate(foldAssArg, save)
+            matrix_info['p_value'] = test.p_value(matrix_info['targets'], matrix_info['predictions'])
+            test.confusion_matrix(matrix_info, save, le)

@@ -27,6 +27,7 @@ import test_fct as test
 
 
 from IftimDevLib.IDL.pipelines.evaluation.classification import EarlyStopping
+from IftimDevLib.IDL.components.datasets.data_utils import set_seed
 
 warnings.simplefilter("ignore", FutureWarning)
 
@@ -111,6 +112,7 @@ def parser_init():
 
 if __name__ == "__main__":
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'  # helps prevent out-of-memory errors and makes more efficient use of the available GPU memory
+    set_seed(221) # random seed
     p = parser_init()
     
     le_path = f"{os.getcwd()}/Lymphoma_labelEncoder.pkl"
@@ -204,12 +206,8 @@ if __name__ == "__main__":
                 print("test val : ", folder)
                 resDF = test.test(loaders["test"], path, le, p.parse_args().disable_tqdm)
                 foldersDf.append(resDF)
-                
-            foldArgAss = foldersDf
-            foldAssArg = foldersDf
-
 
             save = f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/out_{name}_{date}_{test_fold}"
-            matrix_info = test.assemble_n_aggregate(foldAssArg, save)
+            matrix_info = test.assemble_n_aggregate(foldersDf, save)
             matrix_info['p_value'] = test.p_value(matrix_info['targets'], matrix_info['predictions'])
             test.confusion_matrix(matrix_info, save, le)

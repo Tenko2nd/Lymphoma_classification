@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
 from transformers import AutoModel
+from MyModel_Class import MyModel
 
 
 from IftimDevLib.IDL.pipelines.evaluation.classification import EarlyStopping
@@ -36,16 +37,13 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
 
 def create_model(learning_rate: float = 0.0001, decay: float = 0.0):
     # create model
-    model = AutoModel.from_pretrained("owkin/phikon-v2")
+    model = MyModel()
 
     """
     models.efficientnet_b4(
         weights=models.EfficientNet_B4_Weights.DEFAULT
     )  # change weights
     """
-    # Freeze all layers except the final classification layer
-    for name, param in model.named_parameters():
-        param.requires_grad = "fc" in name  # try all layers
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=decay)
@@ -72,7 +70,6 @@ def train_step(
     tr_loss = 0
     # Create an empty DataFrame
     df = pd.DataFrame(columns=["predictions", "targets", "patients"])
-
     for inputs, labels, tabular in tqdm(
         train_dataloader,
         total=len(train_dataloader),
@@ -80,29 +77,24 @@ def train_step(
     ):
         patients = tabular["patient"]
 
+        targets = label_encoder.transform(labels)
         labels = torch.from_numpy(label_encoder.transform(labels))
 
-        images = inputs.to(device, dtype=torch.float)
-        labels = labels.to(device, dtype=torch.float)
-
+        images = inputs.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
         optimizer.zero_grad()
 
         outputs = model(images)
-
-        loss = criterion(
-            outputs.last_hidden_state[:, 0, :],
-            labels.squeeze(-1).to(device, dtype=torch.long),
-        )
-        preds = F.softmax(outputs.last_hidden_state[:, 0, :], dim=1)[:, 1].cpu()
-        tr_loss += loss.item()
-
+        loss = criterion(outputs, labels)
+        tr_loss = torch.add(tr_loss, loss.item())
         loss.backward()
         optimizer.step()
 
+        preds = F.softmax(outputs, dim=1)[:, 1].cpu().detach().numpy()
         new_df = pd.DataFrame(
             {
-                "predictions": preds.detach().numpy(),
-                "targets": labels.squeeze(-1).cpu().detach().numpy(),
+                "predictions": preds,
+                "targets": targets,
                 "patients": patients,
             }
         )
@@ -117,7 +109,7 @@ def train_step(
 
     del df
 
-    return tr_loss / len(train_dataloader), tr_score
+    return float(tr_loss / len(train_dataloader)), tr_score
 
 
 def val_step(
@@ -145,27 +137,24 @@ def val_step(
     ):
         patients = tabular["patient"]
 
+        targets = label_encoder.transform(labels)
         labels = torch.from_numpy(label_encoder.transform(labels))
 
-        images = inputs.to(device, dtype=torch.float)
-        labels = labels.to(device, dtype=torch.float)
+        images = inputs.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
         # Turning on inference context manager
         with torch.inference_mode():
             # Forward pass + calculate loss
             outputs = model(images)
-            loss = criterion(
-                outputs.last_hidden_state[:, 0, :],
-                labels.squeeze(-1).to(device, dtype=torch.long),
-            )
-            preds = F.softmax(outputs.last_hidden_state[:, 0, :], dim=1)[:, 1].cpu()
-            val_loss += loss.item()
+            loss = criterion(outputs, labels)
+            val_loss = torch.add(val_loss, loss.item())
 
-        # Create a new DataFrame for the current iteration
+        preds = F.softmax(outputs, dim=1)[:, 1].cpu().detach().numpy()
         new_df = pd.DataFrame(
             {
-                "predictions": preds.detach().numpy(),
-                "targets": labels.squeeze(-1).cpu().detach().numpy(),
+                "predictions": preds,
+                "targets": targets,
                 "patients": patients,
             }
         )
@@ -181,7 +170,7 @@ def val_step(
 
     del df
 
-    return val_loss / len(val_dataloader), val_score
+    return float(val_loss / len(val_dataloader)), val_score
 
 
 def train(

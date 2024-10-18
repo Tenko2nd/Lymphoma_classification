@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, roc_auc_score
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 from torchvision import models
 import numpy as np
@@ -9,6 +10,7 @@ from sklearn import metrics
 import torch.nn.functional as F
 from scipy.stats import mannwhitneyu
 from transformers import AutoModel
+from MyModel_Class import MyModel
 
 import warnings
 
@@ -29,7 +31,7 @@ def test(loader, model_path, le, disable_tqdm):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Load the model
-    model = AutoModel.from_pretrained("owkin/phikon-v2") #models.efficientnet_b4()
+    model = MyModel()
     model.load_state_dict(
         torch.load(model_path, weights_only=True, map_location=torch.device(device))
     )

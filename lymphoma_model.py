@@ -19,6 +19,7 @@ from sklearn import preprocessing
 from torchvision import transforms
 import torch
 import pandas as pd
+import numpy as np
 
 import lymphoma_dataset_class as L
 import constant as C
@@ -97,7 +98,12 @@ def parser_init():
         help="If you want to disable the progress bar (default : enable)",
     )
 
-    parser.set_defaults(disable=False)
+    parser.add_argument(
+        "--precomputed",
+        dest="precomputed",
+        action="store_true",
+        help="If you have already precomputed the embedings",
+    )
 
     parser.add_argument(
         "-name",
@@ -120,14 +126,19 @@ if __name__ == "__main__":
         le = preprocessing.LabelEncoder()
         le.classes_ = pickle.load(f)
 
+    precomputed = p.parse_args().precomputed
+
     date = datetime.now().strftime("%m%d-%H%M")
     name = p.parse_args().name
     
     # create folder for model, result and AUC to save in
-    os.mkdir(f"{os.getcwd()}/Model/{name}_{date}")
+    root = f"{os.getcwd()}/Model/{name}_{date}"
+    os.mkdir(root)
 
     dataset_path = p.parse_args().dataset_path
     df = pd.read_csv(dataset_path)
+
+    score_fold = []
 
     for test_fold, _ in df.groupby('folder'):
 
@@ -155,6 +166,7 @@ if __name__ == "__main__":
             dataset = {
                 x: L.LymphomaDataset(
                     pd_file=dataset_df[x].reset_index(drop=True),
+                    precomputed=precomputed,
                     transform=transforms.Compose(
                         [
                             transforms.ToTensor(),
@@ -185,6 +197,7 @@ if __name__ == "__main__":
             results = train.train(
                 train_dataloader=loaders["train"],
                 val_dataloader=loaders["val"],
+                precomputed=precomputed,
                 learning_rate=p.parse_args().learning_rate,
                 decay=p.parse_args().decay,
                 epochs=200,
@@ -204,10 +217,17 @@ if __name__ == "__main__":
             foldersDf = []
             for folder, path in modelPaths.items():
                 print("test val : ", folder)
-                resDF = test.test(loaders["test"], path, le, p.parse_args().disable_tqdm)
+                resDF = test.test(loaders["test"], path, le,precomputed, p.parse_args().disable_tqdm)
                 foldersDf.append(resDF)
 
             save = f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/out_{name}_{date}_{test_fold}"
             matrix_info = test.assemble_n_aggregate(foldersDf, save)
             matrix_info['p_value'] = test.p_value(matrix_info['targets'], matrix_info['predictions'])
             test.confusion_matrix(matrix_info, save, le)
+            score_fold.append(matrix_info['auc'])
+            with open(f'{root}/resume_{name}.txt', 'a+') as resume:
+                resume.write(f"test folders : {test_fold}\n")
+                resume.write(f"auroc : {matrix_info['auc']:.3f}, p_value : {matrix_info['p_value']:.4f}\n")
+    with open(f'{root}/resume_{name}.txt', 'a+') as resume:
+        resume.write(f"mean score : {np.mean(score_fold):.3f}\n")
+

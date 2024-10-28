@@ -145,6 +145,7 @@ def saveResult(patient_stats: pd.DataFrame, save_path):
         plt.xlabel("False Positive Rate")
         plt.legend()
         plt.savefig(f"{save_path}auroc.png")
+    plt.close()
     return matrix_info
 
 def confusion_matrix(matrix_info, save_path, le):

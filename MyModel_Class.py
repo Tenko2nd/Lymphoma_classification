@@ -4,22 +4,23 @@ from transformers import AutoModel
 
 
 class MyModel(nn.Module):
-    def __init__(self):
+    def __init__(self, precomputed=False):
+        self.precomputed = precomputed
         super(MyModel, self).__init__()
-        self.encoder = AutoModel.from_pretrained("owkin/phikon-v2")
-        self.encoder.requires_grad_(False)  # Freeze the encoder layers
-        self.fc1 = nn.Linear(1024, 256)  # hidden layer 1
-        self.fc2 = nn.Linear(256, 128)  # hidden layer 2
-        self.fc3 = nn.Linear(128, 64)  # hidden layer 3
-        self.fc4 = nn.Linear(64, 32)  # hidden layer 4
-        self.fc5 = nn.Linear(32, 2)  # output layer
+        if not precomputed:
+            self.encoder = AutoModel.from_pretrained("owkin/phikon-v2")
+            self.encoder.requires_grad_(False)  # Freeze the encoder layers
+        self.fc1 = nn.Linear(1024, 128)  # hidden layer 1
+        self.dropout = nn.Dropout(p=0.5)  # dropout layer
+        self.fc2 = nn.Linear(128, 2)  # hidden layer 2
 
     def forward(self, x):
-        output = self.encoder(x)
-        pooled_output = output.pooler_output
+        if not self.precomputed:
+            output = self.encoder(x)
+            pooled_output = output.pooler_output
+        else:
+            pooled_output = x
         x = torch.relu(self.fc1(pooled_output))
-        x = torch.relu(self.fc2(x))
-        x = torch.relu(self.fc3(x))
-        x = torch.relu(self.fc4(x))
-        x = self.fc5(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
         return x

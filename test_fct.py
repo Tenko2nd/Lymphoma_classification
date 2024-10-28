@@ -17,7 +17,7 @@ import warnings
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
-def test(loader, model_path, le, disable_tqdm):
+def test(loader, model_path, le, precomputed, disable_tqdm):
     """Test the performance of the model on unseen data from the dataset
 
     Args:
@@ -31,7 +31,7 @@ def test(loader, model_path, le, disable_tqdm):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Load the model
-    model = MyModel()
+    model = MyModel(precomputed=precomputed)
     model.load_state_dict(
         torch.load(model_path, weights_only=True, map_location=torch.device(device))
     )

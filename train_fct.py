@@ -35,14 +35,15 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
     return loaders
 
 
-def create_model(learning_rate: float = 0.0001, decay: float = 0.0):
+def create_model(
+    learning_rate: float = 0.0001, decay: float = 0.0, precomputed: bool = False
+):
     # create model
-    model = MyModel()
-
+    model = MyModel(precomputed=precomputed)
     """
     models.efficientnet_b4(
         weights=models.EfficientNet_B4_Weights.DEFAULT
-    )  # change weights
+    )
     """
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -182,11 +183,12 @@ def train(
     decay: float,
     train_dataloader: DataLoader,
     val_dataloader: DataLoader,
+    precomputed: bool,
 ):
     # Creating empty results dictionary
     results = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
 
-    criterion, optimizer, model = create_model(learning_rate, decay)
+    criterion, optimizer, model = create_model(learning_rate, decay, precomputed)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -260,17 +262,7 @@ def saveLearnCurves(tLoss, vLoss, tAcc, vAcc, save_path):
         vAcc (List): validation accuracy list of the model
         save_path (str): path to save the image
     """
-    maxLoss = max(tLoss)
-    minLoss = min(tLoss)
-    zoom = (np.mean(tLoss) - minLoss) * 2 + minLoss
-
-    # define the custom scale function
-    def custom_scale(x):
-        return np.where(x >= zoom, x, zoom + (x - zoom) / 0.1)
-
-    # define the inverse custom scale function
-    def custom_scale_inv(x):
-        return np.where(x >= zoom, x, zoom + (x - zoom) * 0.1)
+    maxLoss = max(max(tLoss), max(vLoss))
 
     with plt.style.context("ggplot"):
         plt.figure()
@@ -278,10 +270,7 @@ def saveLearnCurves(tLoss, vLoss, tAcc, vAcc, save_path):
         axl.plot(tLoss, "g", vLoss, "r")
         # Mark the minimum point
         axl.scatter(vLoss.index(min(vLoss)), min(vLoss), color="red", marker="o", s=50)
-        # apply the custom scale to the axis
-        axl.set_yscale("function", functions=(custom_scale, custom_scale_inv))
-        # set the y-axis limits to ensure the custom scale is applied correctly
-        axl.set_ylim([0, maxLoss + maxLoss / 10])
+        axl.set_ylim([0, maxLoss + 0.1])
         axl.legend(("train", "val"))
         axl.set_title(f"Loss (min Loss: {min(vLoss):.4f})")
         axv = plt.subplot(2, 1, 2)
@@ -290,3 +279,4 @@ def saveLearnCurves(tLoss, vLoss, tAcc, vAcc, save_path):
         axv.set_title(f"AUROC (max val: {max(vAcc):.4f})", y=-0.01)
         axv.legend(("train", "val"))
         plt.savefig(f"{save_path}_res.png")
+        plt.close()

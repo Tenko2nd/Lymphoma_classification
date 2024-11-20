@@ -42,7 +42,6 @@ DS_FOLDER = parser.parse_args().ds_path
 
 # Categories in dataset
 categories = [f for f in os.listdir(DS_FOLDER) if os.path.isdir(f"{DS_FOLDER}{f}")]
-
 image_paths = {}
 # Loop throught all categories
 for c in categories:
@@ -52,7 +51,7 @@ for c in categories:
 
 
 # Write data in csv file
-with open(f"{DS_FOLDER}data.csv", "w", newline="") as csvfile:
+with open(f"{DS_FOLDER}data3class.csv", "w", newline="") as csvfile:
     dataWriter = csv.writer(
         csvfile, delimiter=",", quotechar="|", quoting=csv.QUOTE_MINIMAL
     )

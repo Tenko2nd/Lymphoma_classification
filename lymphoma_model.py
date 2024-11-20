@@ -203,13 +203,12 @@ if __name__ == "__main__":
                 epochs=200,
                 label_encoder=le,
                 early_stopping=early_stopping,
-                disable_tqdm = p.parse_args().disable_tqdm)
+                disable_tqdm = p.parse_args().disable_tqdm,
+                targets=dataset["train"].targets)
             
             train.saveLearnCurves(
                 tLoss=results["train_loss"], 
                 vLoss=results["val_loss"],
-                tAcc=results["train_acc"], 
-                vAcc=results["val_acc"], 
                 save_path=save_model_path.split('.')[0])
 
         if "test" in dataset:
@@ -221,13 +220,9 @@ if __name__ == "__main__":
                 foldersDf.append(resDF)
 
             save = f"{os.getcwd()}/Model/{name}_{date}/{name}_{date}_{test_fold}/out_{name}_{date}_{test_fold}"
-            matrix_info = test.assemble_n_aggregate(foldersDf, save)
-            matrix_info['p_value'] = test.p_value(matrix_info['targets'], matrix_info['predictions'])
-            test.confusion_matrix(matrix_info, save, le)
-            score_fold.append(matrix_info['auc'])
+            output = test.assemble_n_aggregate(foldersDf, save, le)
             with open(f'{root}/resume_{name}.txt', 'a+') as resume:
                 resume.write(f"test folders : {test_fold}\n")
-                resume.write(f"auroc : {matrix_info['auc']:.3f}, p_value : {matrix_info['p_value']:.4f}\n")
-    with open(f'{root}/resume_{name}.txt', 'a+') as resume:
-        resume.write(f"mean score : {np.mean(score_fold):.3f}\n")
+                resume.write("\n".join(output))
+                resume.write("\n")
 

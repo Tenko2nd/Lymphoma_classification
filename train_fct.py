@@ -8,6 +8,7 @@ from torchvision import models
 import numpy as np
 import matplotlib.pyplot as plt
 import sklearn
+from sklearn.utils.class_weight import compute_class_weight
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,6 +16,8 @@ import torch.optim as optim
 from tqdm import tqdm
 from transformers import AutoModel
 from MyModel_Class import MyModel
+
+import constant as C
 
 
 from IftimDevLib.IDL.pipelines.evaluation.classification import EarlyStopping
@@ -36,7 +39,7 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
 
 
 def create_model(
-    learning_rate: float = 0.0001, decay: float = 0.0, precomputed: bool = False
+    labels, learning_rate: float = 0.0001, decay: float = 0.0, precomputed: bool = False
 ):
     # create model
     model = MyModel(precomputed=precomputed)
@@ -45,9 +48,14 @@ def create_model(
         weights=models.EfficientNet_B4_Weights.DEFAULT
     )
     """
+    class_weights = compute_class_weight(
+        class_weight="balanced", classes=np.unique(labels), y=labels
+    )
+    class_weights = torch.tensor(class_weights, dtype=torch.float)
+    print(class_weights)
     # Define the loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=decay)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=decay)
     return criterion, optimizer, model
 
 
@@ -66,19 +74,15 @@ def train_step(
 
     # Putting model in train mode
     model.train()
-
+    log_softmax = nn.LogSoftmax(dim=1)
     # Setup train loss and train accuracy values
     tr_loss = 0
     # Create an empty DataFrame
-    df = pd.DataFrame(columns=["predictions", "targets", "patients"])
-    for inputs, labels, tabular in tqdm(
+    for inputs, labels, _ in tqdm(
         train_dataloader,
         total=len(train_dataloader),
         disable=disable_tqdm,
     ):
-        patients = tabular["patient"]
-
-        targets = label_encoder.transform(labels)
         labels = torch.from_numpy(label_encoder.transform(labels))
 
         images = inputs.to(device, non_blocking=True)
@@ -86,31 +90,12 @@ def train_step(
         optimizer.zero_grad()
 
         outputs = model(images)
-        loss = criterion(outputs, labels)
+        loss = criterion(log_softmax(outputs), labels)
         tr_loss = torch.add(tr_loss, loss.item())
         loss.backward()
         optimizer.step()
 
-        preds = F.softmax(outputs, dim=1)[:, 1].cpu().detach().numpy()
-        new_df = pd.DataFrame(
-            {
-                "predictions": preds,
-                "targets": targets,
-                "patients": patients,
-            }
-        )
-        # Append the new DataFrame to the main DataFrame
-        df = pd.concat([df, new_df])
-
-    df = df.groupby("patients")[["predictions", "targets"]].mean().reset_index()
-
-    tr_score = roc_auc_score(
-        df["targets"].tolist(), df["predictions"].tolist(), multi_class="ovo"
-    )
-
-    del df
-
-    return float(tr_loss / len(train_dataloader)), tr_score
+    return float(tr_loss / len(train_dataloader))
 
 
 def val_step(
@@ -129,16 +114,14 @@ def val_step(
     model.eval()
 
     val_loss = 0
+    log_softmax = nn.LogSoftmax(dim=1)
     # Create an empty DataFrame
     df = pd.DataFrame(columns=["predictions", "targets", "patients"])
 
-    for inputs, labels, tabular in tqdm(
+    for inputs, labels, _ in tqdm(
         val_dataloader,
         disable=disable_tqdm,
     ):
-        patients = tabular["patient"]
-
-        targets = label_encoder.transform(labels)
         labels = torch.from_numpy(label_encoder.transform(labels))
 
         images = inputs.to(device, non_blocking=True)
@@ -148,30 +131,10 @@ def val_step(
         with torch.inference_mode():
             # Forward pass + calculate loss
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            loss = criterion(log_softmax(outputs), labels)
             val_loss = torch.add(val_loss, loss.item())
 
-        preds = F.softmax(outputs, dim=1)[:, 1].cpu().detach().numpy()
-        new_df = pd.DataFrame(
-            {
-                "predictions": preds,
-                "targets": targets,
-                "patients": patients,
-            }
-        )
-
-        # Append the new DataFrame to the main DataFrame
-        df = pd.concat([df, new_df])
-
-    df = df.groupby("patients")[["predictions", "targets"]].mean().reset_index()
-
-    val_score = roc_auc_score(
-        df["targets"].tolist(), df["predictions"].tolist(), multi_class="ovo"
-    )
-
-    del df
-
-    return float(val_loss / len(val_dataloader)), val_score
+    return float(val_loss / len(val_dataloader))
 
 
 def train(
@@ -184,18 +147,22 @@ def train(
     train_dataloader: DataLoader,
     val_dataloader: DataLoader,
     precomputed: bool,
+    targets: list,
 ):
     # Creating empty results dictionary
     results = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
 
-    criterion, optimizer, model = create_model(learning_rate, decay, precomputed)
+    criterion, optimizer, model = create_model(
+        targets, learning_rate, decay, precomputed
+    )
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
+    criterion.to(device)
 
     start_time = timer()
     for epoch in range(epochs):
         epoch_start = timer()
-        train_loss, train_auc = train_step(
+        train_loss = train_step(
             criterion=criterion,
             device=device,
             disable_tqdm=disable_tqdm,
@@ -204,7 +171,7 @@ def train(
             optimizer=optimizer,
             train_dataloader=train_dataloader,
         )
-        val_loss, val_auc = val_step(
+        val_loss = val_step(
             criterion=criterion,
             device=device,
             disable_tqdm=disable_tqdm,
@@ -220,16 +187,14 @@ def train(
         # Printing out what's happening
         print(
             f"Epoch: {epoch+1} | "
-            f"train : Loss: {train_loss:.4f}, ROC AUC: {train_auc:.4f} | "
-            f"validation : Loss {val_loss:.4f}, ROC AUC: {val_auc:.4f}"
+            f"train : Loss: {train_loss:.4f}| "
+            f"validation : Loss {val_loss:.4f}"
             f"\nElapsed time for epoch {epoch+1}: {epoch_time // 60} minutes {epoch_time % 60:.4f} seconds"
         )
 
         # Updating results dictionary
         results["train_loss"].append(train_loss)
-        results["train_acc"].append(train_auc)
         results["val_loss"].append(val_loss)
-        results["val_acc"].append(val_auc)
 
         # Comparing the loss per epoch
         if early_stopping:
@@ -252,7 +217,7 @@ def train(
     return results
 
 
-def saveLearnCurves(tLoss, vLoss, tAcc, vAcc, save_path):
+def saveLearnCurves(tLoss, vLoss, save_path):
     """save the learning curves figure
 
     Args:
@@ -266,17 +231,11 @@ def saveLearnCurves(tLoss, vLoss, tAcc, vAcc, save_path):
 
     with plt.style.context("ggplot"):
         plt.figure()
-        axl = plt.subplot(2, 1, 1)
-        axl.plot(tLoss, "g", vLoss, "r")
+        plt.plot(tLoss, "g", vLoss, "r")
         # Mark the minimum point
-        axl.scatter(vLoss.index(min(vLoss)), min(vLoss), color="red", marker="o", s=50)
-        axl.set_ylim([0, maxLoss + 0.1])
-        axl.legend(("train", "val"))
-        axl.set_title(f"Loss (min Loss: {min(vLoss):.4f})")
-        axv = plt.subplot(2, 1, 2)
-        axv.plot(tAcc, "g", vAcc, "r")
-        axv.scatter(vAcc.index(max(vAcc)), max(vAcc), color="red", marker="o", s=50)
-        axv.set_title(f"AUROC (max val: {max(vAcc):.4f})", y=-0.01)
-        axv.legend(("train", "val"))
+        plt.scatter(vLoss.index(min(vLoss)), min(vLoss), color="red", marker="o", s=50)
+        plt.ylim([0, maxLoss + 0.1])
+        plt.legend(("train", "val"))
+        plt.title(f"Loss (min Loss: {min(vLoss):.4f})")
         plt.savefig(f"{save_path}_res.png")
         plt.close()

@@ -12,11 +12,9 @@
 import argparse
 
 from sklearn import preprocessing
-from torchvision import transforms
 import pandas as pd
 import pickle
 
-import constant as C
 import lymphoma_dataset_class as L
 
 
@@ -34,15 +32,7 @@ def main():
 
     df = pd.read_csv(parser.parse_args().dataset_path)
     dataset = L.LymphomaDataset(
-        pd_file=df.loc[df["folder"] == "train_1"].reset_index(drop=True),
-        transform=transforms.Compose(
-            [
-                L.Rescale(360),
-                L.Crop(360),
-                L.ToTensor(),
-                transforms.Normalize(C.lymphomas_mean, C.lymphomas_std),
-            ]
-        ),
+        pd_file=df.reset_index(drop=True),
     )
 
     le = preprocessing.LabelEncoder()

@@ -16,12 +16,14 @@ import numpy as np
 import glob
 from scipy.stats import mannwhitneyu
 from transformers import AutoModel
+import shutil
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import lymphoma_dataset_class as L
 import constant as C
+from MyModel_Class import MyModel
 
 
 def parser_init():
@@ -61,7 +63,7 @@ def test(loader, model_path, le):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Load the model
-    model = AutoModel.from_pretrained("owkin/phikon-v2")
+    model = MyModel(precomputed=True)
     model.load_state_dict(
         torch.load(model_path, weights_only=True, map_location=torch.device(device))
     )
@@ -69,13 +71,11 @@ def test(loader, model_path, le):
     model = model.to(device)
 
     # Create an empty DataFrame
-    df = pd.DataFrame(columns=['predictions', 'targets', 'patients', 'references'])
+    df = pd.DataFrame()
 
-    for inputs, labels, tabular in tqdm(
-        loader
-    ):
+    for inputs, labels, tabular in tqdm(loader):
         patients = tabular["patient"]
-        references = tabular['reference']
+        references = tabular["reference"]
 
         labels = torch.from_numpy(le.transform(labels))
 
@@ -86,85 +86,115 @@ def test(loader, model_path, le):
         with torch.inference_mode():
             # Forward pass + calculate loss
             outputs = model(images)
-            preds = F.softmax(outputs.last_hidden_state[:, 0, :], dim=1)[:, 1].cpu()
-
-                
+            score_df = pd.DataFrame(
+                [
+                    F.softmax(outputs, dim=1)[:, i].cpu().detach().numpy()
+                    for i in range(C.NUM_CLASSES)
+                ]
+            ).T.add_prefix("score_")
         # Create a new DataFrame for the current iteration
-        new_df = pd.DataFrame({'predictions': preds.detach().numpy(), 'targets': labels.squeeze(-1).cpu().detach().numpy(), 'patients': patients, "references" : references})
-
+        new_df = pd.DataFrame(
+            {
+                "target": labels.squeeze(-1).cpu().detach().numpy(),
+                "patient": patients,
+                "reference": references,
+            }
+        )
+        new_df = pd.concat([new_df, score_df], axis=1)
         # Append the new DataFrame to the main DataFrame
         df = pd.concat([df, new_df])
 
-    return  df
+    return df
 
-def assemble_n_aggregate(foldersDf, save_path):
-    """Assembling by median then agregation by mean
-    """
+def assemble_n_aggregate(foldersDf, save_path, le):
+    """Assembling by mean then agregation by median"""
     # Assembling
     df_concat = pd.concat(foldersDf)
     patient_stats = (
-        df_concat.groupby("references")
+        df_concat.groupby("reference")
         .agg(
             {
-                "predictions": ["median"],
-                "targets": "median",
-                "patients": "first",
+                **{
+                    col: "mean" for col in df_concat.columns if col.startswith("score_")
+                },
+                "target": "median",
+                "patient": "first",
             }
         )
         .reset_index()
     )
-    patient_stats.columns = [
-        "references",
-        "predictions",
-        "targets",
-        "patients",
-    ]
+
+    before_agg = patient_stats
 
     # Agregation
-    patient_stats = patient_stats.drop(columns=["references"])
+    patient_stats = patient_stats.drop(columns=["reference"])
     patient_stats = (
-        patient_stats.groupby("patients")[["predictions", "targets"]].mean().reset_index()
+        patient_stats.groupby("patient")[
+            patient_stats.columns[
+                patient_stats.columns.str.startswith("score_")
+            ].tolist()
+            + ["target"]
+        ]
+        .median()
+        .reset_index()
     )
-    sortedPatientResults(patient_stats, save_path)
-    return saveResult(patient_stats, save_path)
+    patient_stats["prediction"] = np.argmax(
+        patient_stats[["score_0", "score_1", "score_2"]].values, axis=1
+    )
 
-def saveResult(patient_stats: pd.DataFrame, save_path):
-    targets = patient_stats["targets"].tolist()
-    predictions = patient_stats["predictions"].tolist()
-    with plt.style.context("ggplot"):
-        # ROC
-        plt.figure()
-        plt.plot([0, 1], [0, 1], color="#ccca68", linestyle="--", label="No Skill")
-        fpr, tpr, thresh = roc_curve(targets, predictions)
-        roc_auc = roc_auc_score(targets, predictions)
-        plt.plot(fpr, tpr, label=f"ass_med_agr_mean (AUC:{roc_auc:.3f})")
-        optimal_thresh = sorted(list(zip(np.abs(tpr - fpr), thresh)), key=lambda i: i[0], reverse=True)[0][1]
-        roc_predictions = [1 if i >= optimal_thresh else 0 for i in predictions]
-        matrix_info = {"auc" : roc_auc, "name" :"ss_med_agr_mean", "threshold": optimal_thresh, "targets": targets, "predictions": roc_predictions}
-        plt.ylabel("True Positive Rate")
-        plt.xlabel("False Positive Rate")
-        plt.legend()
-        plt.savefig(f"{save_path}auroc.png")
-    plt.close()
-    return matrix_info
+    saveResult(patient_stats, save_path, le)
+    return best_worst(patient_stats, save_path, before_agg)
 
-def confusion_matrix(matrix_info, save_path, le):
-    confusion_matrix = metrics.confusion_matrix(matrix_info["targets"], matrix_info["predictions"])
-    cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix, display_labels = le.inverse_transform([0, 1]))
+def best_worst(patient_stats, save_path, before_agg):
+    os.makedirs(f"{save_path}best_worst", exist_ok=True)
+    patient_stats['diff'] = np.where(patient_stats['target'] == 0, 
+                                np.abs(1 - patient_stats['score_0']), 
+                                np.where(patient_stats['target'] == 1, 
+                                        np.abs(1 - patient_stats['score_1']), 
+                                        np.abs(1 - patient_stats['score_2'])))
+    before_agg['diff'] = np.where(before_agg['target'] == 0, 
+                                np.abs(1 - before_agg['score_0']), 
+                                np.where(before_agg['target'] == 1, 
+                                        np.abs(1 - before_agg['score_1']), 
+                                        np.abs(1 - before_agg['score_2'])))
+    image_best = before_agg.sort_values('diff').groupby('target').head(20).reset_index(drop=True)
+    image_worst = before_agg.sort_values('diff', ascending=False).groupby('target').head(20).reset_index(drop=True)
+    image_best.to_csv(f"{save_path}best_worst/best.csv",index=True,header=True,)
+    image_worst.to_csv(f"{save_path}best_worst/worst.csv",index=True,header=True,)
+    return patient_stats, before_agg
+
+
+    
+
+def saveResult(patient_stats: pd.DataFrame, save_path, le):
+    targets = patient_stats["target"].to_numpy()
+    prediction = patient_stats["prediction"].to_numpy()
+    output = []
+
+    # Compute the ROC curve and AUROC for each class
+    for i in range(C.NUM_CLASSES):
+        predictions = patient_stats[f"score_{i}"].to_numpy()
+        auroc = roc_auc_score(targets == i, predictions)
+        output.append(f"Class {le.inverse_transform([i])}: AUROC = {auroc:.3f}")
+        print(output[-1])
+
+    cm = metrics.confusion_matrix(targets, prediction)
+    cm_display = metrics.ConfusionMatrixDisplay(
+        confusion_matrix=cm,
+        display_labels=le.inverse_transform(list(range(C.NUM_CLASSES))),
+    )
     cm_display.plot()
-    plt.suptitle(f"p_value: {matrix_info["p_value"]:.5f}, threshold: {matrix_info["threshold"]:.4f}")
-    plt.savefig(f"{save_path}confusion_matrix.png")
+    plt.suptitle(
+        f"balanced accuracy : {metrics.balanced_accuracy_score(targets, prediction):.3f}, accuracy : {metrics.accuracy_score(targets, prediction):.3f}"
+    )
+    plt.savefig(f"{save_path}_confusion_matrix.png")
 
-def p_value(preds, targets): 
-    x = [p for p, t in zip(preds, targets) if t == 0]     
+def p_value(preds, targets):
+    x = [p for p, t in zip(preds, targets) if t == 0]
     y = [p for p, t in zip(preds, targets) if t == 1]
-    _, p = mannwhitneyu(y, x)    
+    _, p = mannwhitneyu(y, x)
     return p
 
-def sortedPatientResults(patient_stats: pd.DataFrame, save_path):
-    patient_stats["difference"] = np.abs(patient_stats["targets"] - patient_stats["predictions"])
-    df_sorted = patient_stats.sort_values(by='difference')
-    df_sorted.to_csv(f'{save_path}sorted_data.csv', index=False)
 
 
 if __name__ == "__main__":
@@ -173,48 +203,82 @@ if __name__ == "__main__":
 
     dataset_path = parser.parse_args().dataset_path
     df = pd.read_csv(dataset_path)
+    DS_FOLDER = parser.parse_args().model_root_path
     
-    modelRootPath = parser.parse_args().model_root_path
+    modelRootPaths = [os.path.abspath(os.path.join(DS_FOLDER, f)) 
+                    for f in os.listdir(DS_FOLDER) 
+                    if os.path.isdir(os.path.join(DS_FOLDER, f))]
 
-    num = modelRootPath.split('_')[-1]
-    test_df  = df[df['folder'] == f'folder_{num}']
-    print(f"test : {test_df.groupby(["categorie"])["categorie"].count().to_dict()}")
+    # Create empty DataFrames
+    all_patient_df = pd.DataFrame()
+    all_images_df = pd.DataFrame()
+
+    for modelRootPath in modelRootPaths:
+
+        num = modelRootPath.split('_')[-1]
+        test_df  = df[df['folder'] == f'folder_{num}']
+        print(f"test : {test_df.groupby(["categorie"])["categorie"].count().to_dict()}")
+        
+
+
+        dataset = L.LymphomaDataset(
+                pd_file=test_df.reset_index(drop=True),
+                precomputed=True
+            )
+        
+        loader =  DataLoader(
+                dataset, batch_size=16, shuffle=False, num_workers=15
+            )
+        
+        le_path = f"{os.getcwd()}/Lymphoma_labelEncoder.pkl"
+        with open(le_path, "rb") as f:
+            le = preprocessing.LabelEncoder()
+            le.classes_ = pickle.load(f)   
+
+        
+
+        modelPaths = glob.glob(f"{modelRootPath}/**/*.pt", recursive=True)
+        foldersDf = []
+        for folder, path in enumerate(modelPaths):
+            print("test val : ", folder)
+            resDF = test(loader, path, le)
+            foldersDf.append(resDF)
+
+        save = f"{modelRootPath}/"
+        patient_stats, before_agg = assemble_n_aggregate(foldersDf, save, le)
+        all_patient_df = pd.concat([all_patient_df, patient_stats])
+        all_images_df = pd.concat([all_images_df, before_agg])
     
+    all_images_df = all_images_df.sort_values('diff').reset_index(drop=True)
+    all_images_df.to_csv(f"{DS_FOLDER}all_images.csv",index=False,header=True,)
+    all_patient_df = all_patient_df.sort_values('diff').reset_index(drop=True)
+    all_patient_df.to_csv(f"{DS_FOLDER}all_patients.csv",index=False,header=True,)
 
+    targets = all_patient_df["target"].to_numpy()
+    predictions = all_patient_df["prediction"].to_numpy()
 
-    dataset = L.LymphomaDataset(
-            pd_file=test_df.reset_index(drop=True),
-            transform=transforms.Compose(
-                [
-                    transforms.ToTensor(),
-                    transforms.Resize(size=C.IMG_SIZE, interpolation=transforms.InterpolationMode.BILINEAR),
-                    transforms.CenterCrop(C.IMG_SIZE),
-                ]
-            ),
-        )
+    for i in range(C.NUM_CLASSES):
+        probas = all_patient_df[f"score_{i}"].to_numpy()
     
-    loader =  DataLoader(
-            dataset, batch_size=16, shuffle=False, num_workers=15
-        )
-    
-    le_path = f"{os.getcwd()}/Lymphoma_labelEncoder.pkl"
-    with open(le_path, "rb") as f:
-        le = preprocessing.LabelEncoder()
-        le.classes_ = pickle.load(f)   
+        with plt.style.context("ggplot"):
+            # ROC
+            plt.figure()
+            plt.plot([0, 1], [0, 1], color="#ccca68", linestyle="--", label="No Skill")
+            fpr, tpr, tresh = roc_curve(targets == i, probas)
+            roc_auc = roc_auc_score(targets == i, probas)
+            plt.plot(fpr, tpr, label=f"AUC:{roc_auc:.3f}")
+            plt.ylabel("True Positive Rate")
+            plt.xlabel("False Positive Rate")
+            p = p_value(probas, targets.astype(int))
+            plt.suptitle(f"p value : {p}")
+            plt.legend()
+            plt.savefig(f"{DS_FOLDER}auroc_{le.inverse_transform([i])[0]}.png")
 
-    
-
-    modelPaths = glob.glob(f"{modelRootPath}/**/*.pt", recursive=True)
-
-    foldersDf = []
-    for folder, path in enumerate(modelPaths):
-        print("test val : ", folder)
-        resDF = test(loader, path, le)
-        foldersDf.append(resDF)
-
-    save = f"{modelRootPath}/"
-    matrix_info = assemble_n_aggregate(foldersDf, save)
-    matrix_info['p_value'] = p_value(matrix_info['targets'], matrix_info['predictions'])
-    confusion_matrix(matrix_info, save, le)
-
-
+    confusion_matrix = metrics.confusion_matrix(targets, predictions)
+    cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix, display_labels = le.inverse_transform(list(range(C.NUM_CLASSES))))
+    cm_display.plot()
+    plt.suptitle(
+        f"balanced accuracy : {metrics.balanced_accuracy_score(targets, predictions):.3f}, accuracy : {metrics.accuracy_score(targets, predictions):.3f}"
+    )
+    plt.savefig(f"{DS_FOLDER}confusion_matrix.png")
+    plt.close()

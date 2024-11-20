@@ -44,7 +44,7 @@ def df_train_val_test(full_pd_df, st, no_mult,fract_sample, extern_val):
             int(full_pd_df["patient"].nunique() * fract_sample),
             replace=False,
         )
-        split_pat = np.array_split(sample_pat, 10)
+        split_pat = np.array_split(sample_pat, 5)
         # Mapping patient in 5 folders folder_(1,2,3,4,5)
         patient_folder_map = {p: f"folder_{i+1}" for i, folder in enumerate(split_pat) for p in folder}
         full_pd_df["folder"] = full_pd_df["patient"].map(patient_folder_map)
@@ -118,7 +118,6 @@ def create_csv(p: argparse.ArgumentParser):
     if st:
         fullDF = fullDF[fullDF["type"].isin(st)].reset_index(drop=True)
         st = '_'.join(st)+'_'
-        #raise Exception(f"\033[38;5;208m//!\\\\ the subtype {st} is not in the dataset!\033[0m")
     elif no_multiple:
         fullDF = fullDF[fullDF["type"].str.find('+') == -1].reset_index(drop=True)
 

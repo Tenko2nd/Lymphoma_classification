@@ -21,6 +21,7 @@ import lymphoma_dataset_class as L
 
 def parser_init() -> ArgumentParser:
     """Initialize the parser and returns it"""
+
     parser = ArgumentParser(description=__doc__, formatter_class=RawTextHelpFormatter)
 
     parser.add_argument(

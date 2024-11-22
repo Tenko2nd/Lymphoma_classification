@@ -1,0 +1,1 @@
+python /path/to/code/label_encoder.py -d /path/to/Dataset/DS_Lymph_3class_k5.csv

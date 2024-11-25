@@ -1,0 +1,7 @@
+python /path/to/code/lymphoma_dataset.py -csv "/path/to/data/data.csv" #created 1 csv with the 3classes, 5 fold, external validation
+python /path/to/code/lymphoma_dataset.py -csv "/path/to/data/data.csv" -k 10 #created 1 csv with the 3classes, 10 fold, external validation
+python /path/to/code/lymphoma_dataset.py -csv "/path/to/data/data.csv" -n 2 #created 2 csv with the 3classes, 5 fold, external validation
+python /path/to/code/lymphoma_dataset.py -csv "/path/to/data/data.csv" -n 2 --int #created 2 csv with the 3classes, 5 fold, internal validation
+python /path/to/code/lymphoma_dataset.py -csv "/path/to/data/data.csv" --two #created 1 csv with the 2classes, 5 fold, external validation
+
+python /path/to/code/lymphoma_dataset.py -csv "/path/to/data/data.csv" -h # Print the help

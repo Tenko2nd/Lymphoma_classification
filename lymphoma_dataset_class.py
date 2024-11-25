@@ -1,11 +1,12 @@
-"""\033[38;5;224m    This is where the pytorch dataset class is initialized.
+"""
+    This is where the pytorch dataset class is initialized.
     It's using pytorch dataset class and transformation (optional) thanks to torchvision.
     It take as input a pandas dataframe with all the data from a csv dataset.
     Optional, precomputed, used only if we use the precomuted version of an image instead (if the image has been saved as an numpy file in exit of the encoder)
     the data are stored as variable 'image', 'classes' and 'tabular with :
             - image in the form of torch.tensor (3, 360, 360)
             - categorie is either 'LCM' ('Lymphome à cellule du manteau'), 'LZM' ('Lymphome de la zone marginale') or SGTEM (control patients)
-            - tabular are all the metadata associated with each images (here it is the 'patient', 'image_reference' and 'cell_type')\033[0m
+            - tabular are all the metadata associated with each images (here it is the 'patient', 'image_reference' and 'cell_type')
 """
 
 from numpy import load

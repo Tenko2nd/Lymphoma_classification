@@ -17,6 +17,7 @@ from warnings import simplefilter
 import os
 
 from sklearn.preprocessing import LabelEncoder
+from torch.utils.data import Dataset
 from torchvision import transforms
 import pandas as pd
 import torch
@@ -32,13 +33,13 @@ from IftimDevLib.IDL.pipelines.evaluation.classification import EarlyStopping
 
 
 
-def init_environment():
+def init_environment() -> None:
     """Initialize environment variable and seeds"""
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'  # helps prevent out-of-memory errors and makes more efficient use of the available GPU memory
     set_seed(221) # random seed
     simplefilter("ignore", FutureWarning)
 
-def parser_init():
+def parser_init() -> ArgumentParser:
     """initialize the parser and returns it"""
     parser = ArgumentParser(
         description=__doc__, formatter_class=RawTextHelpFormatter
@@ -128,7 +129,7 @@ def load_label_encoder() -> LabelEncoder:
         label_encoder.classes_ = load(f)
     return label_encoder
 
-def create_customs_datasets(dataset_df: dict, precomputed : bool) -> dict:
+def create_customs_datasets(dataset_df: dict[str, pd.DataFrame], precomputed : bool) -> dict[str, Dataset]:
     """Create the customs dataset based on the dictionnary of Dataframes
 
     Args:
@@ -159,7 +160,7 @@ def create_customs_datasets(dataset_df: dict, precomputed : bool) -> dict:
     }
     return datasets
 
-def main():
+def main() -> None:
     if not os.path.exists(f"{os.getcwd()}/Model/"):
         os.makedirs(f"{os.getcwd()}/Model/")
 

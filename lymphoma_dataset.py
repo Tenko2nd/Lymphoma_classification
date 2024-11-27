@@ -9,7 +9,7 @@ import numpy as np
 from pandas import read_csv, DataFrame
 
 
-def map_images_2_fold(full_pd_df : DataFrame, extern_val : bool = True, k : int = 5, two_classes : bool = False) -> DataFrame:
+def map_images_2_fold(full_pd_df : DataFrame, extern_val : bool, k : int, two_classes : bool) -> DataFrame:
     """ Create a csv file with a new column fold for later repartition.
         Input a pandas dataframe for it to be worked on (The one created in "lymphoma_csv_data.py").
         You can choose to have an external validation (one patient can only be in one fold train/val/test) or internal.

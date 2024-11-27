@@ -45,7 +45,7 @@ def parser_init() -> ArgumentParser:
     return parser
 
 
-def get_image_paths(DS_FOLDER: str, categories: list) -> dict:
+def get_image_paths(DS_FOLDER: str, categories: list) -> dict[str, list]:
     """Get every image path in the dataset folder
 
     Args:

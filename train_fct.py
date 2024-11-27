@@ -1,30 +1,33 @@
 from time import perf_counter as timer
 
-from sklearn.metrics import roc_auc_score
-import pandas as pd
-import sklearn.preprocessing
-from torch.utils.data import DataLoader
-from torchvision import models
-import numpy as np
-import matplotlib.pyplot as plt
-import sklearn
+from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.class_weight import compute_class_weight
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from tqdm import tqdm
-from transformers import AutoModel
+
 from MyModel_Class import MyModel
-
-import constant as C
-
 
 from IftimDevLib.IDL.pipelines.evaluation.classification import EarlyStopping
 
 
-def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: int = 4):
-    # Load train and validation dataset
+def loaders(
+    dataset: dict[str, Dataset], batch_size: int, workers: int
+) -> dict[str, DataLoader]:
+    """Create the loaders train/val/test based on the dict of datasets given as input
+
+    Args:
+        dataset (dict[str, Dataset]): A dictionnary containing the three different datasets train/val/test
+        batch_size (int): The number of element to be passed at once for each iteration
+        workers (int): The number of workers you want you computer to use
+
+    Returns:
+        dict[str, DataLoader]: A dictionnary containing the three different loaders train/val/test
+    """
     loaders = {
         x: DataLoader(
             dataset[x],
@@ -33,26 +36,18 @@ def loaders(dataset: torch.utils.data.Dataset, batch_size: int = 64, workers: in
             num_workers=workers,
             drop_last=True,
         )
-        for x in ["train", "val"] + (["test"] if "test" in dataset.keys() else [])
+        for x in ["train", "val", "test"]
     }
     return loaders
 
 
-def create_model(
-    labels, learning_rate: float = 0.0001, decay: float = 0.0, precomputed: bool = False
-):
+def create_model(labels, learning_rate: float, decay: float, precomputed: bool):
     # create model
     model = MyModel(precomputed=precomputed)
-    """
-    models.efficientnet_b4(
-        weights=models.EfficientNet_B4_Weights.DEFAULT
-    )
-    """
     class_weights = compute_class_weight(
         class_weight="balanced", classes=np.unique(labels), y=labels
     )
     class_weights = torch.tensor(class_weights, dtype=torch.float)
-    print(class_weights)
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=decay)
@@ -63,7 +58,7 @@ def train_step(
     criterion: nn.Module,
     device: torch.device,
     disable_tqdm: bool,
-    label_encoder: sklearn.preprocessing.LabelEncoder,
+    label_encoder: LabelEncoder,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
     train_dataloader: DataLoader,
@@ -102,7 +97,7 @@ def val_step(
     criterion: nn.Module,
     device: torch.device,
     disable_tqdm: bool,
-    label_encoder: sklearn.preprocessing.LabelEncoder,
+    label_encoder: LabelEncoder,
     model: nn.Module,
     val_dataloader: DataLoader,
 ):
@@ -115,8 +110,6 @@ def val_step(
 
     val_loss = 0
     log_softmax = nn.LogSoftmax(dim=1)
-    # Create an empty DataFrame
-    df = pd.DataFrame(columns=["predictions", "targets", "patients"])
 
     for inputs, labels, _ in tqdm(
         val_dataloader,
@@ -141,7 +134,7 @@ def train(
     disable_tqdm: bool,
     early_stopping: EarlyStopping,
     epochs: int,
-    label_encoder: sklearn.preprocessing.LabelEncoder,
+    label_encoder: LabelEncoder,
     learning_rate: float,
     decay: float,
     train_dataloader: DataLoader,

@@ -7,14 +7,15 @@
         - A MLP of 1024 → 128 → 32 → C.NUM_CLASSES
 """
 
-import torch.nn as nn
+from torch import Tensor
 from transformers import AutoModel
+import torch.nn as nn
 
 import constant as C
 
 
 class MyModel(nn.Module):
-    def __init__(self, precomputed=False):
+    def __init__(self, precomputed=False) -> None:
         self.precomputed = precomputed
         super(MyModel, self).__init__()
         if not precomputed:
@@ -25,7 +26,7 @@ class MyModel(nn.Module):
         self.fc2 = nn.Linear(128, 32)  # hidden layer 2
         self.fc3 = nn.Linear(32, C.NUM_CLASSES)  # final layer
 
-    def forward(self, x):
+    def forward(self, x) -> Tensor:
         if not self.precomputed:
             output = self.encoder(x)
             pooled_output = output.pooler_output

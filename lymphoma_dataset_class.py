@@ -9,7 +9,7 @@
             - tabular are all the metadata associated with each images (here it is the 'patient', 'image_reference' and 'cell_type')
 """
 
-from numpy import load
+from numpy import load, ndarray
 from skimage.io import imread
 from torch import is_tensor
 from torch.utils.data import Dataset
@@ -18,7 +18,7 @@ from torch.utils.data import Dataset
 class LymphomaDataset(Dataset):
     """MZL & MCL Dataset"""
 
-    def __init__(self, pd_file, precomputed=False, transform=None):
+    def __init__(self, pd_file, precomputed=False, transform=None) -> None:
         self.df = pd_file
         self.precomputed = precomputed
         self.transform = transform
@@ -29,7 +29,7 @@ class LymphomaDataset(Dataset):
     def __len__(self) -> int:
         return len(self.df)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> tuple[ndarray, ndarray, dict[str, any]]:
         if is_tensor(index):
             idx = idx.tolist()
         if self.precomputed:

@@ -1,9 +1,7 @@
 import argparse
 import pandas as pd
-from torchvision import transforms
 from tqdm import tqdm
 import torch
-from torchvision import models
 import matplotlib.pyplot as plt
 from sklearn import preprocessing
 from sklearn.metrics import roc_curve, roc_auc_score
@@ -15,8 +13,6 @@ from sklearn import metrics
 import numpy as np
 import glob
 from scipy.stats import mannwhitneyu
-from transformers import AutoModel
-import shutil
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -76,6 +72,7 @@ def test(loader, model_path, le):
     for inputs, labels, tabular in tqdm(loader):
         patients = tabular["patient"]
         references = tabular["reference"]
+        cell_types = tabular["type"]
 
         labels = torch.from_numpy(le.transform(labels))
 
@@ -98,6 +95,7 @@ def test(loader, model_path, le):
                 "target": labels.squeeze(-1).cpu().detach().numpy(),
                 "patient": patients,
                 "reference": references,
+                "cell_type": cell_types,
             }
         )
         new_df = pd.concat([new_df, score_df], axis=1)
@@ -106,10 +104,10 @@ def test(loader, model_path, le):
 
     return df
 
-def assemble_n_aggregate(foldersDf, save_path, le):
+def assemble_n_aggregate(foldsDf, save_path, le):
     """Assembling by mean then agregation by median"""
     # Assembling
-    df_concat = pd.concat(foldersDf)
+    df_concat = pd.concat(foldsDf)
     patient_stats = (
         df_concat.groupby("reference")
         .agg(
@@ -119,6 +117,7 @@ def assemble_n_aggregate(foldersDf, save_path, le):
                 },
                 "target": "median",
                 "patient": "first",
+                "cell_type": "first",
             }
         )
         .reset_index()
@@ -238,14 +237,14 @@ if __name__ == "__main__":
         
 
         modelPaths = glob.glob(f"{modelRootPath}/**/*.pt", recursive=True)
-        foldersDf = []
-        for folder, path in enumerate(modelPaths):
-            print("test val : ", folder)
+        foldsDf = []
+        for fold, path in enumerate(modelPaths):
+            print("test val : ", fold)
             resDF = test(loader, path, le)
-            foldersDf.append(resDF)
+            foldsDf.append(resDF)
 
         save = f"{modelRootPath}/"
-        patient_stats, before_agg = assemble_n_aggregate(foldersDf, save, le)
+        patient_stats, before_agg = assemble_n_aggregate(foldsDf, save, le)
         all_patient_df = pd.concat([all_patient_df, patient_stats])
         all_images_df = pd.concat([all_images_df, before_agg])
     
@@ -261,7 +260,6 @@ if __name__ == "__main__":
         probas = all_patient_df[f"score_{i}"].to_numpy()
     
         with plt.style.context("ggplot"):
-            # ROC
             plt.figure()
             plt.plot([0, 1], [0, 1], color="#ccca68", linestyle="--", label="No Skill")
             fpr, tpr, tresh = roc_curve(targets == i, probas)
@@ -269,7 +267,7 @@ if __name__ == "__main__":
             plt.plot(fpr, tpr, label=f"AUC:{roc_auc:.3f}")
             plt.ylabel("True Positive Rate")
             plt.xlabel("False Positive Rate")
-            p = p_value(probas, targets.astype(int))
+            p = p_value(probas, targets.astype(int) == i)
             plt.suptitle(f"p value : {p}")
             plt.legend()
             plt.savefig(f"{DS_FOLDER}auroc_{le.inverse_transform([i])[0]}.png")

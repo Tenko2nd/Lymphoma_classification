@@ -10,6 +10,7 @@ from sklearn import metrics
 import torch.nn.functional as F
 from scipy.stats import mannwhitneyu
 from transformers import AutoModel
+import os
 
 from MyModel_Class import MyModel
 import constant as C
@@ -46,6 +47,7 @@ def test(loader, model_path, le, precomputed, disable_tqdm):
     for inputs, labels, tabular in tqdm(loader, disable=disable_tqdm):
         patients = tabular["patient"]
         references = tabular["reference"]
+        cell_types = tabular["type"]
 
         labels = torch.from_numpy(le.transform(labels))
 
@@ -65,9 +67,10 @@ def test(loader, model_path, le, precomputed, disable_tqdm):
         # Create a new DataFrame for the current iteration
         new_df = pd.DataFrame(
             {
-                "targets": labels.squeeze(-1).cpu().detach().numpy(),
-                "patients": patients,
-                "references": references,
+                "target": labels.squeeze(-1).cpu().detach().numpy(),
+                "patient": patients,
+                "reference": references,
+                "cell_type": cell_types,
             }
         )
         new_df = pd.concat([new_df, score_df], axis=1)
@@ -82,27 +85,30 @@ def assemble_n_aggregate(foldersDf, save_path, le):
     # Assembling
     df_concat = pd.concat(foldersDf)
     patient_stats = (
-        df_concat.groupby("references")
+        df_concat.groupby("reference")
         .agg(
             {
                 **{
                     col: "mean" for col in df_concat.columns if col.startswith("score_")
                 },
-                "targets": "median",
-                "patients": "first",
+                "target": "median",
+                "patient": "first",
+                "cell_type": "first",
             }
         )
         .reset_index()
     )
 
+    before_agg = patient_stats
+
     # Agregation
-    patient_stats = patient_stats.drop(columns=["references"])
+    patient_stats = patient_stats.drop(columns=["reference"])
     patient_stats = (
-        patient_stats.groupby("patients")[
+        patient_stats.groupby("patient")[
             patient_stats.columns[
                 patient_stats.columns.str.startswith("score_")
             ].tolist()
-            + ["targets"]
+            + ["target"]
         ]
         .median()
         .reset_index()
@@ -111,7 +117,9 @@ def assemble_n_aggregate(foldersDf, save_path, le):
         patient_stats[["score_0", "score_1", "score_2"]].values, axis=1
     )
 
-    return saveResult(patient_stats, save_path, le)
+    output = saveResult(patient_stats, save_path, le)
+    patient_stats, before_agg = best_worst(patient_stats, save_path, before_agg)
+    return patient_stats, before_agg, output
 
 
 def p_value(preds, targets):
@@ -122,27 +130,63 @@ def p_value(preds, targets):
 
 
 def saveResult(patient_stats: pd.DataFrame, save_path, le):
-    print(patient_stats)
-    targets = patient_stats["targets"].to_numpy()
+    target = patient_stats["target"].to_numpy()
     prediction = patient_stats["prediction"].to_numpy()
     output = []
 
-    # Compute the ROC curve and AUROC for each class
     for i in range(C.NUM_CLASSES):
-        predictions = patient_stats[f"score_{i}"].to_numpy()
-        auroc = roc_auc_score(targets == i, predictions)
-        output.append(f"Class {le.inverse_transform([i])}: AUROC = {auroc:.3f}")
-        print(output[-1])
+        probas = patient_stats[f"score_{i}"].to_numpy()
 
-    cm = metrics.confusion_matrix(targets, prediction)
+        with plt.style.context("ggplot"):
+            plt.figure()
+            plt.plot([0, 1], [0, 1], color="#ccca68", linestyle="--", label="No Skill")
+            fpr, tpr, _ = roc_curve(target == i, probas)
+            roc_auc = roc_auc_score(target == i, probas)
+            plt.plot(fpr, tpr, label=f"AUC:{roc_auc:.3f}")
+            plt.ylabel("True Positive Rate")
+            plt.xlabel("False Positive Rate")
+            p = p_value(probas, target.astype(int))
+            output.append(
+                f"Class {le.inverse_transform([i])}: AUROC = {roc_auc:.3f}, p_value = {p:.4f}"
+            )
+            print(output[-1])
+            plt.suptitle(f"p value : {p}")
+            plt.legend()
+            plt.savefig(f"{save_path}auroc_{le.inverse_transform([i])[0]}.png")
+
+    confusion_matrix = metrics.confusion_matrix(target, prediction)
     cm_display = metrics.ConfusionMatrixDisplay(
-        confusion_matrix=cm,
+        confusion_matrix=confusion_matrix,
         display_labels=le.inverse_transform(list(range(C.NUM_CLASSES))),
     )
     cm_display.plot()
     plt.suptitle(
-        f"balanced accuracy : {metrics.balanced_accuracy_score(targets, prediction):.3f}, accuracy : {metrics.accuracy_score(targets, prediction):.3f}"
+        f"balanced accuracy : {metrics.balanced_accuracy_score(target, prediction):.3f}, accuracy : {metrics.accuracy_score(target, prediction):.3f}"
     )
-    plt.savefig(f"{save_path}_confusion_matrix.png")
+    plt.savefig(f"{save_path}confusion_matrix.png")
+    plt.close()
 
     return output
+
+
+def best_worst(patient_stats, save_path, before_agg):
+    os.makedirs(f"{save_path}best_worst", exist_ok=True)
+    patient_stats["diff"] = np.where(
+        patient_stats["target"] == 0,
+        np.abs(1 - patient_stats["score_0"]),
+        np.where(
+            patient_stats["target"] == 1,
+            np.abs(1 - patient_stats["score_1"]),
+            np.abs(1 - patient_stats["score_2"]),
+        ),
+    )
+    before_agg["diff"] = np.where(
+        before_agg["target"] == 0,
+        np.abs(1 - before_agg["score_0"]),
+        np.where(
+            before_agg["target"] == 1,
+            np.abs(1 - before_agg["score_1"]),
+            np.abs(1 - before_agg["score_2"]),
+        ),
+    )
+    return patient_stats, before_agg

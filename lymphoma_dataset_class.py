@@ -33,7 +33,9 @@ class LymphomaDataset(Dataset):
         if is_tensor(index):
             idx = idx.tolist()
         if self.precomputed:
-            image = load(self.df.iloc[index]["img_path"].replace(".jpg", ".npy"))
+            part = self.df.iloc[index]["img_path"].split("/")
+            new_path = "/".join(part[:-3] + ["owkin/phikon-v2"] + part[-3:])
+            image = load(new_path.replace(".jpg", ".npy"))
         else:
             image = imread(self.df.iloc[index]["img_path"]) / 255.0
             if self.transform:

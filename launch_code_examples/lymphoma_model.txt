@@ -1,7 +1,7 @@
-python /path/to/code/lymphoma_model.py -d "/path/to/Dataset/example.csv" # Basic with all default value
-python /path/to/code/lymphoma_model.py -d "/path/to/Dataset/example.csv" -bs 16 -w 8 -lr 0.0001 -wd 0.0001 # some option, batch size, workers, learning rate, weight decay
-python /path/to/code/lymphoma_model.py -d "/path/to/Dataset/example.csv" -name "test" # to name the folder and the models 
-python /path/to/code/lymphoma_model.py -d "/path/to/Dataset/example.csv" -precomputed # If you already have the embeddings calculated and store on the computer
+python /path/to/code/lymphoma_model.py -d "/path/to/code/Dataset/example.csv" # Basic with all default value
+python /path/to/code/lymphoma_model.py -d "/path/to/code/Dataset/example.csv" -bs 16 -w 8 -lr 0.0001 -wd 0.0001 # some option, batch size, workers, learning rate, weight decay
+python /path/to/code/lymphoma_model.py -d "/path/to/code/Dataset/example.csv" -name "test" # to name the folder and the models 
+python /path/to/code/lymphoma_model.py -d "/path/to/code/Dataset/example.csv" --precomputed # If you already have the embeddings calculated and store on the computer
 
-python /path/to/code/lymphoma_model.py -d "/path/to/Dataset/example.csv" -h # To see help
+python /path/to/code/lymphoma_model.py -h # To see help
 

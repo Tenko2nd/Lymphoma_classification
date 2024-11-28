@@ -1,0 +1,4 @@
+python /path/to/code/precompute_embedding.py -d "/path/to/DS_FOLDER/data.csv" # run with dafault value
+python /path/to/code/precompute_embedding.py -d "/path/to/DS_FOLDER/data.csv" -bs 8 -w 8 #run with a batch size of 8 and 8 workers
+
+python /path/to/code/precompute_embedding.py -h # Print the help
